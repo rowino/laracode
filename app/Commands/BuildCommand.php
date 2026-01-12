@@ -86,7 +86,13 @@ class BuildCommand extends Command
 
             $result = Process::path($projectPath)
                 ->timeout(600)
-                ->run(['claude', '--print', '/build-next']);
+                ->run([
+                    'claude',
+                    '--print',
+                    '--permission-mode', 'default',
+                    '--dangerously-skip-permissions',
+                    '/build-next',
+                ]);
 
             if ($result->successful()) {
                 $this->line($result->output());
