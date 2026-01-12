@@ -18,6 +18,7 @@ class BuildCommand extends Command
 
     public function handle(): int
     {
+        /** @var string $tasksPath */
         $tasksPath = $this->argument('path');
         $maxIterations = (int) $this->option('iterations');
         $delay = (int) $this->option('delay');
@@ -31,9 +32,15 @@ class BuildCommand extends Command
 
         // Parse and validate JSON
         $content = file_get_contents($tasksPath);
+        if ($content === false) {
+            $this->error("Cannot read tasks file: {$tasksPath}");
+
+            return self::FAILURE;
+        }
+
         $tasks = json_decode($content, true);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($tasks)) {
             $this->error('Invalid JSON in tasks file: '.json_last_error_msg());
 
             return self::FAILURE;
@@ -46,14 +53,15 @@ class BuildCommand extends Command
         }
 
         // Determine project path (go up from .laracode/specs/feature/tasks.json)
-        $projectPath = dirname(realpath($tasksPath));
+        $realTasksPath = realpath($tasksPath);
+        $projectPath = $realTasksPath ? dirname($realTasksPath) : dirname($tasksPath);
         // Try to find project root by looking for .claude or .laracode directory
         while ($projectPath !== '/' && ! is_dir($projectPath.'/.claude') && ! is_dir($projectPath.'/.laracode')) {
             $projectPath = dirname($projectPath);
         }
 
         if ($projectPath === '/') {
-            $projectPath = dirname(realpath($tasksPath), 3); // Fallback: go up 3 levels
+            $projectPath = $realTasksPath ? dirname($realTasksPath, 3) : dirname($tasksPath, 3);
         }
 
         $this->info("Project path: {$projectPath}");
@@ -64,6 +72,10 @@ class BuildCommand extends Command
         while ($iteration < $maxIterations) {
             // Reload tasks on each iteration (Claude may have updated them)
             $content = file_get_contents($tasksPath);
+            if ($content === false) {
+                continue;
+            }
+            /** @var array{feature: string, tasks: array<array{id: int, status: string, description: string}>} $tasks */
             $tasks = json_decode($content, true);
 
             // Find pending tasks
@@ -78,7 +90,7 @@ class BuildCommand extends Command
 
             $iteration++;
             $this->newLine();
-            $this->line("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            $this->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             $this->info("Iteration {$iteration}/{$maxIterations}");
 
             // Run Claude Code with /build-next command
@@ -103,8 +115,11 @@ class BuildCommand extends Command
 
             // Reload and display stats
             $content = file_get_contents($tasksPath);
-            $tasks = json_decode($content, true);
-            $this->displayStats($tasks);
+            if ($content !== false) {
+                /** @var array{feature: string, tasks: array<array{id: int, status: string, description: string}>} $tasks */
+                $tasks = json_decode($content, true);
+                $this->displayStats($tasks);
+            }
 
             // Check if there are still pending tasks
             $pending = array_filter($tasks['tasks'], fn ($t) => $t['status'] === 'pending');
@@ -121,6 +136,9 @@ class BuildCommand extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * @param  array<string, mixed>  $tasks
+     */
     private function displayStats(array $tasks): void
     {
         $total = count($tasks['tasks']);
@@ -133,7 +151,7 @@ class BuildCommand extends Command
         $bar = str_repeat('█', $filled).str_repeat('░', $barLength - $filled);
 
         $this->newLine();
-        $this->line("Feature: <info>{$tasks['feature']}</info>");
+        $this->line("Feature: <info>{$tasks['title']}</info>");
         $this->line("Progress: [{$bar}] {$percentage}%");
         $this->line("Tasks: <info>{$completed}</info>/{$total} completed | <comment>{$pending}</comment> pending");
     }
