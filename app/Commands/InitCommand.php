@@ -54,14 +54,26 @@ class InitCommand extends Command
 
         $this->newLine();
 
+        // Create or merge settings.json
+        $settingsPath = $projectPath.'/.claude/settings.json';
+        if (! file_exists($settingsPath)) {
+            file_put_contents($settingsPath, $this->getSettingsContent());
+            $this->line('  <info>Created</info> .claude/settings.json');
+        } elseif ($force) {
+            file_put_contents($settingsPath, $this->getSettingsContent());
+            $this->line('  <info>Overwritten</info> .claude/settings.json');
+        } else {
+            $this->mergeSettings($settingsPath);
+            $this->line('  <info>Merged</info> .claude/settings.json');
+        }
+
         // Create build-next.md command
         $buildNextPath = $projectPath.'/.claude/commands/build-next.md';
-        if (! file_exists($buildNextPath) || $force) {
-            file_put_contents($buildNextPath, $this->getBuildNextContent());
-            $this->line('  <info>Created</info> .claude/commands/build-next.md');
-        } else {
-            $this->line('  <comment>Exists</comment> .claude/commands/build-next.md (use --force to overwrite)');
-        }
+        $this->handleCommandFile($buildNextPath, $this->getBuildNextContent(), '.claude/commands/build-next.md');
+
+        // Create generate-tasks.md command
+        $generateTasksPath = $projectPath.'/.claude/commands/generate-tasks.md';
+        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/commands/generate-tasks.md');
 
         // Create sample tasks.json template
         $samplePath = $projectPath.'/.laracode/specs/example/tasks.json';
@@ -89,69 +101,244 @@ class InitCommand extends Command
 
     private function getBuildNextContent(): string
     {
-        return <<<'MD'
-# Build Next Task
+        return $this->loadStub('build-next.md');
+    }
 
-**IMPORTANT: Execute immediately. Do NOT enter plan mode. Do NOT ask for approval. Just do the work.**
+    private function getSettingsContent(): string
+    {
+        return json_encode([
+            'hooks' => [],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+    }
 
-Implement the next pending task from the tasks.json file, then exit.
+    private function mergeSettings(string $settingsPath): void
+    {
+        $existingContent = file_get_contents($settingsPath);
+        if ($existingContent === false) {
+            file_put_contents($settingsPath, $this->getSettingsContent());
 
-## Process
+            return;
+        }
 
-1. **Find and read the active tasks.json file**
-   - Look in `.laracode/specs/*/tasks.json`
-   - Read the file with pending tasks
+        /** @var array<string, mixed>|null $existing */
+        $existing = json_decode($existingContent, true);
+        if ($existing === null) {
+            file_put_contents($settingsPath, $this->getSettingsContent());
 
-2. **Select the next task**
-   - Find first task with `"status": "pending"` (lowest priority number first, then by id)
-   - If no pending tasks, output "All tasks completed!" and exit immediately
+            return;
+        }
 
-3. **Mark task in progress**
-   - Update the task's status to `"in_progress"` in tasks.json
-   - Save immediately
+        /** @var array<string, mixed> $template */
+        $template = json_decode($this->getSettingsContent(), true);
 
-4. **Implement the task NOW**
-   - Read the task description and steps
-   - Execute each step immediately
-   - Do NOT ask for confirmation - just implement
-   - Follow project best practices
+        $merged = $this->deepMergeSettings($existing, $template);
 
-5. **On completion**
-   - Update task status to `"completed"` in tasks.json
-   - Output: "✓ Completed: [task description]"
+        file_put_contents(
+            $settingsPath,
+            json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
+        );
+    }
 
-6. **Exit immediately**
-   - Only implement ONE task per invocation
-   - Exit after completing - do not continue to next task
+    /**
+     * @param  array<string, mixed>  $existing
+     * @param  array<string, mixed>  $template
+     * @return array<string, mixed>
+     */
+    private function deepMergeSettings(array $existing, array $template): array
+    {
+        foreach ($template as $key => $value) {
+            if (! array_key_exists($key, $existing)) {
+                $existing[$key] = $value;
+            } elseif ($key === 'hooks' && is_array($value) && is_array($existing[$key])) {
+                $existing[$key] = $this->mergeHooks($existing[$key], $value);
+            } elseif (is_array($value) && is_array($existing[$key]) && ! $this->isSequentialArray($value)) {
+                $existing[$key] = $this->deepMergeSettings($existing[$key], $value);
+            }
+        }
 
-## Critical Rules
+        return $existing;
+    }
 
-- **NO PLANNING MODE** - Execute directly
-- **NO APPROVAL REQUESTS** - Just do the implementation
-- Only ONE task per invocation
-- Always update tasks.json before and after
-- Exit after completing the single task
-MD;
+    /**
+     * @param  array<int|string, mixed>  $existingHooks
+     * @param  array<int|string, mixed>  $templateHooks
+     * @return array<int|string, mixed>
+     */
+    private function mergeHooks(array $existingHooks, array $templateHooks): array
+    {
+        foreach ($templateHooks as $hookType => $hookEntries) {
+            if (! is_array($hookEntries)) {
+                continue;
+            }
+
+            if (! isset($existingHooks[$hookType])) {
+                $existingHooks[$hookType] = $hookEntries;
+
+                continue;
+            }
+
+            if (! is_array($existingHooks[$hookType])) {
+                $existingHooks[$hookType] = $hookEntries;
+
+                continue;
+            }
+
+            $existingMatchers = array_column($existingHooks[$hookType], 'matcher');
+            foreach ($hookEntries as $entry) {
+                if (is_array($entry) && isset($entry['matcher'])) {
+                    if (! in_array($entry['matcher'], $existingMatchers, true)) {
+                        $existingHooks[$hookType][] = $entry;
+                    }
+                }
+            }
+        }
+
+        return $existingHooks;
+    }
+
+    /**
+     * @param  array<mixed>  $array
+     */
+    private function isSequentialArray(array $array): bool
+    {
+        if ($array === []) {
+            return true;
+        }
+
+        return array_keys($array) === range(0, count($array) - 1);
+    }
+
+    private function handleCommandFile(string $filePath, string $templateContent, string $displayName): void
+    {
+        if (! file_exists($filePath)) {
+            file_put_contents($filePath, $templateContent);
+            $this->line("  <info>Created</info> {$displayName}");
+
+            return;
+        }
+
+        if ($this->option('force')) {
+            file_put_contents($filePath, $templateContent);
+            $this->line("  <info>Overwritten</info> {$displayName}");
+
+            return;
+        }
+
+        $existingContent = file_get_contents($filePath);
+        if ($existingContent === false) {
+            file_put_contents($filePath, $templateContent);
+            $this->line("  <info>Created</info> {$displayName}");
+
+            return;
+        }
+
+        $similarity = $this->calculateSimilarity($existingContent, $templateContent);
+
+        if ($similarity >= 90.0) {
+            $this->line("  <comment>Skipped</comment> {$displayName} (similar to template)");
+
+            return;
+        }
+
+        $this->line("  <comment>Conflict</comment> {$displayName} (differs from template)");
+        $choice = $this->choice(
+            "    How would you like to handle {$displayName}?",
+            ['Ignore (keep existing)', 'Overwrite (use template)', 'Merge (3-way merge)'],
+            0
+        );
+
+        if ($choice === 'Ignore (keep existing)') {
+            $this->line("  <comment>Kept</comment> {$displayName}");
+
+            return;
+        }
+
+        if ($choice === 'Overwrite (use template)') {
+            file_put_contents($filePath, $templateContent);
+            $this->line("  <info>Overwritten</info> {$displayName}");
+
+            return;
+        }
+
+        $this->mergeCommandFile($filePath, $templateContent, $displayName);
+    }
+
+    private function calculateSimilarity(string $existing, string $template): float
+    {
+        $existing = trim($existing);
+        $template = trim($template);
+
+        if ($existing === $template) {
+            return 100.0;
+        }
+
+        $similarity = 0;
+        similar_text($existing, $template, $similarity);
+
+        return $similarity;
+    }
+
+    private function mergeCommandFile(string $filePath, string $templateContent, string $displayName): void
+    {
+        $backupPath = $filePath.'.backup';
+        $basePath = $filePath.'.base';
+        $templatePath = $filePath.'.template';
+
+        $existingContent = file_get_contents($filePath);
+        if ($existingContent === false) {
+            $existingContent = '';
+        }
+
+        file_put_contents($backupPath, $existingContent);
+        file_put_contents($basePath, '');
+        file_put_contents($templatePath, $templateContent);
+
+        $escapedFilePath = escapeshellarg($filePath);
+        $escapedBasePath = escapeshellarg($basePath);
+        $escapedTemplatePath = escapeshellarg($templatePath);
+        $command = "git merge-file -p {$escapedFilePath} {$escapedBasePath} {$escapedTemplatePath}";
+
+        $output = [];
+        $returnCode = 0;
+        exec($command, $output, $returnCode);
+
+        if ($returnCode === 0 || $returnCode === 1) {
+            $mergedContent = implode("\n", $output);
+            file_put_contents($filePath, $mergedContent);
+            $this->line("  <info>Merged</info> {$displayName} (backup: {$displayName}.backup)");
+
+            if ($returnCode === 1) {
+                $this->line('  <comment>Warning:</comment> Merge conflicts detected. Review the file manually.');
+            }
+        } else {
+            $this->line("  <error>Merge failed</error> {$displayName} (keeping original)");
+        }
+
+        @unlink($basePath);
+        @unlink($templatePath);
     }
 
     private function getSampleTasksContent(): string
     {
-        return json_encode([
-            'title' => 'Example Feature',
-            'spec_file' => 'spec.md',
-            'tasks' => [
-                [
-                    'id' => 1,
-                    'group' => 'Setup',
-                    'priority' => 1,
-                    'description' => 'Example task - replace with your own',
-                    'status' => 'pending',
-                    'steps' => [
-                        'Step 1: Describe what to do',
-                        'Step 2: Add more details',
-                    ],
-                ],
-            ],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+        $stub = $this->loadStub('tasks.json');
+
+        return str_replace('{{CREATED_DATE}}', date('c'), $stub);
+    }
+
+    private function getGenerateTasksContent(): string
+    {
+        return $this->loadStub('generate-tasks.md');
+    }
+
+    private function loadStub(string $filename): string
+    {
+        $stubPath = dirname(__DIR__, 2).'/stubs/'.$filename;
+        $content = file_get_contents($stubPath);
+
+        if ($content === false) {
+            throw new \RuntimeException("Stub file not found: {$stubPath}");
+        }
+
+        return $content;
     }
 }
