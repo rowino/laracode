@@ -20,7 +20,7 @@ Implement the next pending task from the tasks.json file, then exit.
    - These notes contain important context left by previous runs
 
 3. **Select the next task**
-   - Find first task with `"status": "pending"` (lowest priority number first, then by id)
+   - Find first task with `"status": "pending"` (lowest priority number first: 1=Critical to 5=Lowest, then by id)
    - If no pending tasks, output "All tasks completed!" and exit immediately
 
 4. **Mark task in progress**

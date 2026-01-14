@@ -1,8 +1,45 @@
+---
+name: generate-tasks
+description: Generate a structured tasks.json file from feature descriptions or spec files
+version: 1.0.0
+usage: /generate-tasks [spec-file-path]
+arguments:
+  - name: spec-file-path
+    required: false
+    description: Optional path to spec.md file. If not provided, uses conversation context.
+outputs:
+  - .laracode/specs/{feature-slug}/spec.md
+  - .laracode/specs/{feature-slug}/tasks.json
+tags:
+  - task-generation
+  - planning
+  - automation
+  - feature-development
+execution_mode: immediate
+---
+
 # Generate Tasks from Feature Description
 
 **IMPORTANT: Execute immediately. Do NOT enter plan mode. Do NOT ask for approval. Just do the work.**
 
-Generate a structured tasks.json file from the current conversation context or a spec file.
+## Overview
+
+This skill generates a comprehensive implementation plan by:
+- Creating a structured `spec.md` file documenting feature requirements
+- Breaking down the feature into granular, executable tasks
+- Generating a `tasks.json` file with proper dependencies and priorities
+- Organizing tasks by complexity level (Simple: 5-8 tasks, Medium: 10-20, Complex: 30-100+)
+
+**When to use:**
+- Starting a new feature implementation
+- Converting conversation requirements into actionable tasks
+- Formalizing a spec file into an execution plan
+
+**What it produces:**
+- `.laracode/specs/{feature-slug}/spec.md` - Feature specification document
+- `.laracode/specs/{feature-slug}/tasks.json` - Structured task breakdown with dependencies
+
+This skill executes immediately without entering plan mode or requesting approval.
 
 ## Input Detection
 
@@ -72,20 +109,19 @@ Generate tasks following these guidelines:
 
 **Dependency Analysis:**
 Order tasks by natural dependencies:
-1. **Database** (priority 1-10): Migrations, seeders
-2. **Models** (priority 11-20): Eloquent models, relationships
-3. **Services** (priority 21-40): Business logic, service classes
-4. **Controllers/Actions** (priority 41-60): HTTP layer
-5. **Views/Components** (priority 61-75): Frontend (if applicable)
-6. **Tests** (priority 81-95): Feature and unit tests
-7. **Documentation** (priority 96-99): README updates, API docs
+1. **Critical (priority 1)**: Migrations, seeders, core configuration
+2. **High (priority 2)**: Eloquent models, relationships, domain entities
+3. **Medium (priority 3)**: Business logic, services, controllers, actions, API endpoints
+4. **Low (priority 4)**: Views, components, frontend assets, styling
+5. **Lowest (priority 5)**: Tests (feature/unit), documentation (README, API docs)
 
-**Priority Assignment:**
-- Lower number = higher priority = executed first
-- Setup tasks: 1-10
-- Core implementation: 11-80
-- Tests: 81-95
-- Documentation: 96-99
+**Priority Levels:**
+Use a 5-level classification where lower number = higher priority:
+- **1 (Critical)**: Foundational setup - database migrations, core configuration
+- **2 (High)**: Core domain - models, relationships, essential business logic
+- **3 (Medium)**: Feature implementation - controllers, services, actions, API endpoints
+- **4 (Low)**: Presentation layer - views, components, styling, UI elements
+- **5 (Lowest)**: Quality & documentation - tests, README updates, API docs
 
 ### Step 4: Generate tasks.json
 
@@ -107,7 +143,7 @@ Create the tasks.json file with this schema:
       ],
       "status": "pending",
       "dependencies": [],
-      "priority": 1,
+      "priority": 1,  // 1-5: 1=Critical, 2=High, 3=Medium, 4=Low, 5=Lowest
       "acceptance": [
         "Testable acceptance criterion 1",
         "Testable acceptance criterion 2"
@@ -158,10 +194,11 @@ Files:
 
 Task Breakdown:
   Total: [N] tasks
-  Setup: [N] tasks (priority 1-10)
-  Core: [N] tasks (priority 11-80)
-  Tests: [N] tasks (priority 81-95)
-  Docs: [N] tasks (priority 96-99)
+  Critical: [N] tasks (priority 1)
+  High: [N] tasks (priority 2)
+  Medium: [N] tasks (priority 3)
+  Low: [N] tasks (priority 4)
+  Lowest: [N] tasks (priority 5)
 
 Dependencies:
   [List any tasks with dependencies]
@@ -221,7 +258,7 @@ For a "User Authentication" feature (medium complexity):
       ],
       "status": "pending",
       "dependencies": [1],
-      "priority": 11,
+      "priority": 2,
       "acceptance": [
         "User model extends Authenticatable",
         "All fillable, hidden, and casts defined",
@@ -241,7 +278,7 @@ For a "User Authentication" feature (medium complexity):
       ],
       "status": "pending",
       "dependencies": [2],
-      "priority": 25,
+      "priority": 3,
       "acceptance": [
         "AuthService class exists",
         "All methods implemented",

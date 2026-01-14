@@ -40,6 +40,7 @@ class InitCommand extends Command
             '.laracode/specs',
             '.claude',
             '.claude/commands',
+            '.claude/skills',
         ];
 
         foreach ($directories as $dir) {
@@ -54,26 +55,20 @@ class InitCommand extends Command
 
         $this->newLine();
 
-        // Create or merge settings.json
-        $settingsPath = $projectPath.'/.claude/settings.json';
-        if (! file_exists($settingsPath)) {
-            file_put_contents($settingsPath, $this->getSettingsContent());
-            $this->line('  <info>Created</info> .claude/settings.json');
-        } elseif ($force) {
-            file_put_contents($settingsPath, $this->getSettingsContent());
-            $this->line('  <info>Overwritten</info> .claude/settings.json');
-        } else {
-            $this->mergeSettings($settingsPath);
-            $this->line('  <info>Merged</info> .claude/settings.json');
-        }
-
         // Create build-next.md command
         $buildNextPath = $projectPath.'/.claude/commands/build-next.md';
         $this->handleCommandFile($buildNextPath, $this->getBuildNextContent(), '.claude/commands/build-next.md');
 
-        // Create generate-tasks.md command
-        $generateTasksPath = $projectPath.'/.claude/commands/generate-tasks.md';
-        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/commands/generate-tasks.md');
+        // Create generate-tasks.md skill
+        $generateTasksPath = $projectPath.'/.claude/skills/generate-tasks.md';
+        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/skills/generate-tasks.md');
+
+        // Merge settings.json if it exists
+        $settingsPath = $projectPath.'/.claude/settings.json';
+        if (file_exists($settingsPath)) {
+            $this->mergeSettings($settingsPath);
+            $this->line('  <info>Merged</info> .claude/settings.json');
+        }
 
         // Create sample tasks.json template
         $samplePath = $projectPath.'/.laracode/specs/example/tasks.json';
@@ -210,6 +205,11 @@ class InitCommand extends Command
 
     private function handleCommandFile(string $filePath, string $templateContent, string $displayName): void
     {
+        $dir = dirname($filePath);
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
         if (! file_exists($filePath)) {
             file_put_contents($filePath, $templateContent);
             $this->line("  <info>Created</info> {$displayName}");

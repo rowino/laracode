@@ -1,41 +1,342 @@
-<p align="center">
-    <img title="Laravel Zero" height="100" src="https://raw.githubusercontent.com/laravel-zero/docs/master/images/logo/laravel-zero-readme.png" alt="Laravel Zero Logo" />
-</p>
+# LaraCode
 
-<p align="center">
-  <a href="https://github.com/laravel-zero/framework/actions"><img src="https://github.com/laravel-zero/laravel-zero/actions/workflows/tests.yml/badge.svg" alt="Build Status" /></a>
-  <a href="https://packagist.org/packages/laravel-zero/framework"><img src="https://img.shields.io/packagist/dt/laravel-zero/framework.svg" alt="Total Downloads" /></a>
-  <a href="https://packagist.org/packages/laravel-zero/framework"><img src="https://img.shields.io/packagist/v/laravel-zero/framework.svg?label=stable" alt="Latest Stable Version" /></a>
-  <a href="https://packagist.org/packages/laravel-zero/framework"><img src="https://img.shields.io/packagist/l/laravel-zero/framework.svg" alt="License" /></a>
-</p>
+An autonomous build system for Laravel projects using Claude AI. LaraCode breaks down features into structured tasks and executes them sequentially with dependency resolution.
 
-Laravel Zero was created by [Nuno Maduro](https://github.com/nunomaduro) and [Owen Voke](https://github.com/owenvoke), and is a micro-framework that provides an elegant starting point for your console application. It is an **unofficial** and customized version of Laravel optimized for building command-line applications.
+## Features
 
-- Built on top of the [Laravel](https://laravel.com) components.
-- Optional installation of Laravel [Eloquent](https://laravel-zero.com/docs/database/), Laravel [Logging](https://laravel-zero.com/docs/logging/) and many others.
-- Supports interactive [menus](https://laravel-zero.com/docs/build-interactive-menus/) and [desktop notifications](https://laravel-zero.com/docs/send-desktop-notifications/) on Linux, Windows & MacOS.
-- Ships with a [Scheduler](https://laravel-zero.com/docs/task-scheduling/) and  a [Standalone Compiler](https://laravel-zero.com/docs/build-a-standalone-application/).
-- Integration with [Collision](https://github.com/nunomaduro/collision) - Beautiful error reporting
-- Follow the creator Nuno Maduro:
-    - YouTube: **[youtube.com/@nunomaduro](https://www.youtube.com/@nunomaduro)** — Videos every weekday
-    - Twitch: **[twitch.tv/enunomaduro](https://www.twitch.tv/enunomaduro)** — Streams (almost) every weekday
-    - Twitter / X: **[x.com/enunomaduro](https://x.com/enunomaduro)**
-    - LinkedIn: **[linkedin.com/in/nunomaduro](https://www.linkedin.com/in/nunomaduro)**
-    - Instagram: **[instagram.com/enunomaduro](https://www.instagram.com/enunomaduro)**
-    - Tiktok: **[tiktok.com/@enunomaduro](https://www.tiktok.com/@enunomaduro)**
+- **Task Generation**: AI-powered breakdown of feature requirements into structured tasks
+- **Dependency Resolution**: Executes tasks in correct order based on dependencies
+- **Progress Tracking**: Visual progress display with blocked task detection
+- **Cliff Notes**: Accumulated context passed between task executions
+- **Multiple Permission Modes**: yolo (auto-approve), accept (interactive), or default
 
-------
+## Installation
 
-## Documentation
+```bash
+composer global require laracode/laracode
+```
 
-For full documentation, visit [laravel-zero.com](https://laravel-zero.com/).
+Or clone and install locally:
 
-## Support the development
-**Do you like this project? Support it by donating**
+```bash
+git clone https://github.com/your-org/laracode.git
+cd laracode/laracode-cli
+composer install
+```
 
-- PayPal: [Donate](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=66BYDWAT92N6L)
-- Patreon: [Donate](https://www.patreon.com/nunomaduro)
+## Quick Start
+
+### 1. Initialize a Project
+
+```bash
+cd your-laravel-project
+laracode init
+```
+
+This creates:
+- `.claude/commands/build-next.md` - Task execution skill
+- `.claude/commands/generate-tasks.md` - Task generation skill
+- `.claude/settings.json` - Claude configuration
+- `.laracode/specs/example/tasks.json` - Sample task file
+
+### 2. Generate Tasks
+
+Use the `/generate-tasks` command in Claude to generate tasks from a conversation:
+
+```
+/generate-tasks
+```
+
+Or provide a spec file path:
+
+```
+/generate-tasks .laracode/specs/my-feature/spec.md
+```
+
+### 3. Run the Build Loop
+
+```bash
+laracode build .laracode/specs/my-feature/tasks.json
+```
+
+Options:
+- `--iterations=100` - Maximum number of tasks to execute (default: 100)
+- `--delay=3` - Seconds between tasks (default: 3)
+- `--mode=yolo` - Permission mode: `yolo`, `accept`, or `default`
+
+## Commands
+
+### `laracode init`
+
+Initializes LaraCode in the current project, creating necessary files and directories.
+
+### `laracode build <path>`
+
+Runs the autonomous build loop using the specified tasks.json file.
+
+```bash
+# Run with default settings
+laracode build .laracode/specs/feature/tasks.json
+
+# Auto-approve all Claude actions
+laracode build .laracode/specs/feature/tasks.json --mode=yolo
+
+# Interactive approval for edits only
+laracode build .laracode/specs/feature/tasks.json --mode=accept
+
+# Limit to 10 tasks
+laracode build .laracode/specs/feature/tasks.json --iterations=10
+```
+
+## Task Generation with `/generate-tasks`
+
+The `/generate-tasks` skill generates structured task files from conversations or spec files.
+
+### Usage
+
+In Claude, describe your feature and run:
+
+```
+I need a user authentication system with:
+- Registration with email verification
+- Login/logout
+- Password reset
+- Remember me functionality
+
+/generate-tasks
+```
+
+### What It Creates
+
+1. **spec.md** - Feature specification with requirements and acceptance criteria
+2. **tasks.json** - Structured task breakdown with dependencies
+
+### Task Granularity
+
+The skill adjusts task count based on complexity:
+
+| Complexity | Task Count | Example |
+|------------|------------|---------|
+| Simple | 5-8 tasks | Login form, settings page |
+| Medium | 10-20 tasks | User auth system, CRUD module |
+| Complex | 30-100+ tasks | Multi-tenant platform |
+
+### Smart Grouping
+
+Related changes to the same file are combined:
+
+**Good:**
+```
+"Create User model with name, email, password fields"
+```
+
+**Bad (too granular):**
+```
+"Add name to User"
+"Add email to User"
+"Add password to User"
+```
+
+## tasks.json Schema
+
+```json
+{
+  "title": "Feature Name",
+  "branch": "feature/feature-slug",
+  "created": "2026-01-12T10:00:00Z",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Short task title",
+      "description": "Detailed description of what needs to be done",
+      "steps": [
+        "Specific step 1",
+        "Specific step 2"
+      ],
+      "status": "pending",
+      "dependencies": [],
+      "priority": 1,
+      "acceptance": [
+        "Testable criterion 1",
+        "Testable criterion 2"
+      ]
+    }
+  ],
+  "sources": [".laracode/specs/feature/spec.md"]
+}
+```
+
+### Schema Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Feature name displayed in progress |
+| `branch` | string | Suggested git branch name |
+| `created` | string | ISO 8601 timestamp |
+| `tasks` | array | List of task objects |
+| `sources` | array | Reference files (spec, PRs, docs) |
+
+### Task Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | integer | Unique task identifier (sequential, starting at 1) |
+| `title` | string | Short descriptive title (5-10 words) |
+| `description` | string | Full context for implementation |
+| `steps` | array | Specific, actionable steps |
+| `status` | string | `pending`, `in_progress`, or `completed` |
+| `dependencies` | array | Task IDs that must complete first |
+| `priority` | integer | Execution order (lower = higher priority) |
+| `acceptance` | array | Testable completion criteria |
+
+## Priority System
+
+Tasks are executed based on priority (lower number = higher priority):
+
+| Priority Range | Category | Examples |
+|---------------|----------|----------|
+| 1-10 | Setup | Migrations, config, seeders |
+| 11-20 | Models | Eloquent models, relationships |
+| 21-40 | Services | Business logic, service classes |
+| 41-60 | Controllers | HTTP layer, actions |
+| 61-75 | Views | Frontend, components |
+| 81-95 | Tests | Feature and unit tests |
+| 96-99 | Documentation | README, API docs |
+
+## Dependency Resolution
+
+Tasks with dependencies wait until all dependencies are completed:
+
+```json
+{
+  "id": 3,
+  "title": "Create AuthService",
+  "dependencies": [1, 2],
+  "priority": 25
+}
+```
+
+Task #3 will only execute after tasks #1 and #2 are completed, regardless of priority.
+
+### How It Works
+
+1. Find all pending tasks
+2. Filter tasks where all dependencies are completed
+3. Sort remaining by priority (lowest first)
+4. Execute the first available task
+
+### Blocked Tasks
+
+Tasks with unsatisfied dependencies are "blocked". The build progress shows:
+
+```
+Progress: [████████████░░░░░░░░] 60%
+Tasks: 6/10 completed | 2 pending | 2 blocked
+```
+
+### Circular Dependency Detection
+
+The system validates that no circular dependencies exist (A→B→C→A).
+
+## Cliff Notes
+
+After each task completion, context is appended to `cliff-notes.md`:
+
+```markdown
+---
+## Task #3: Create AuthService
+- Created app/Services/AuthService.php with register, login, logout methods
+- Used Hash facade for password hashing
+- Login returns boolean, throws exception on invalid credentials
+
+### Next Steps
+- Task #4 (AuthController) is now unblocked
+- Task #7 (Auth tests) depends on tasks #3-6
+```
+
+The next task execution reads these notes for context continuity.
+
+## Example Workflow
+
+### 1. Describe Your Feature
+
+```
+I need to add a blog module with:
+- Posts with title, content, slug, published_at
+- Categories with many-to-many relationship
+- Markdown support in content
+- Author relationship to User
+```
+
+### 2. Generate Tasks
+
+```
+/generate-tasks
+```
+
+Output:
+```
+✓ Generated tasks for: Blog Module
+
+Directory: .laracode/specs/blog-module/
+Files:
+  - spec.md (created)
+  - tasks.json (created)
+
+Task Breakdown:
+  Total: 12 tasks
+  Setup: 2 tasks (priority 1-10)
+  Core: 6 tasks (priority 11-80)
+  Tests: 3 tasks (priority 81-95)
+  Docs: 1 task (priority 96-99)
+
+Run `laracode build .laracode/specs/blog-module/tasks.json` to start building.
+```
+
+### 3. Run Build
+
+```bash
+laracode build .laracode/specs/blog-module/tasks.json --mode=yolo
+```
+
+### 4. Monitor Progress
+
+```
+Feature: Blog Module
+Branch:  feature/blog-module
+Created: 2026-01-12 10:30
+Progress: [████████░░░░░░░░░░░░] 40%
+Tasks: 4/10 completed | 4 pending | 2 blocked
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Iteration 5/100
+Next Task: #5 - Create PostController with CRUD actions
+Running: claude --dangerously-skip-permissions /build-next
+```
+
+## Project Structure
+
+```
+your-project/
+├── .claude/
+│   ├── commands/
+│   │   ├── build-next.md      # Task execution skill
+│   │   └── generate-tasks.md  # Task generation skill
+│   └── settings.json          # Claude configuration
+└── .laracode/
+    └── specs/
+        └── feature-name/
+            ├── spec.md        # Feature specification
+            ├── tasks.json     # Task definitions
+            └── cliff-notes.md # Accumulated context
+```
+
+## Requirements
+
+- PHP 8.2+
+- Claude CLI (`claude` command available)
+- Composer
 
 ## License
 
-Laravel Zero is an open-source software licensed under the MIT license.
+MIT License

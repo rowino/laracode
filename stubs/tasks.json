@@ -32,7 +32,7 @@
             ],
             "status": "pending",
             "dependencies": [1],
-            "priority": 5,
+            "priority": 1,
             "acceptance": [
                 "Migration file exists",
                 "Table created successfully",
@@ -51,7 +51,7 @@
             ],
             "status": "pending",
             "dependencies": [2],
-            "priority": 15,
+            "priority": 2,
             "acceptance": [
                 "Model class exists",
                 "Fillable and casts defined",
@@ -70,7 +70,7 @@
             ],
             "status": "pending",
             "dependencies": [3],
-            "priority": 85,
+            "priority": 5,
             "acceptance": [
                 "Test file exists",
                 "All tests pass",
