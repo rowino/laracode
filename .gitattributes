@@ -1,6 +1,8 @@
 * text=auto eol=lf
 /.github export-ignore
-.scrutinizer.yml export-ignore
-BACKERS.md export-ignore
-CONTRIBUTING.md export-ignore
+/tests export-ignore
+/.laracode export-ignore
+phpstan.neon export-ignore
+.editorconfig export-ignore
+box.json export-ignore
 CHANGELOG.md export-ignore

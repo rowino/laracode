@@ -19,7 +19,7 @@ composer global require laracode/laracode
 Or clone and install locally:
 
 ```bash
-git clone https://github.com/your-org/laracode.git
+git clone https://github.com/rowino/laracode.git
 cd laracode/laracode-cli
 composer install
 ```

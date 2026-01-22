@@ -1,0 +1,82 @@
+{
+    "title": "Example Feature",
+    "branch": "feature/example-feature",
+    "created": "2026-01-22T13:34:32+00:00",
+    "tasks": [
+        {
+            "id": 1,
+            "title": "Setup project configuration",
+            "description": "Create initial configuration files and directory structure for the feature",
+            "steps": [
+                "Create config file with default settings",
+                "Add environment variables to .env.example",
+                "Register service provider if needed"
+            ],
+            "status": "pending",
+            "dependencies": [],
+            "priority": 1,
+            "acceptance": [
+                "Config file exists and is valid",
+                "Environment variables documented"
+            ]
+        },
+        {
+            "id": 2,
+            "title": "Create database migration",
+            "description": "Create the database migration for the feature's main table",
+            "steps": [
+                "Run php artisan make:migration create_examples_table",
+                "Define table columns with appropriate types",
+                "Add indexes for commonly queried columns",
+                "Run php artisan migrate"
+            ],
+            "status": "pending",
+            "dependencies": [1],
+            "priority": 1,
+            "acceptance": [
+                "Migration file exists",
+                "Table created successfully",
+                "Indexes applied"
+            ]
+        },
+        {
+            "id": 3,
+            "title": "Create Eloquent model",
+            "description": "Create the Eloquent model with fillable attributes and relationships",
+            "steps": [
+                "Create app/Models/Example.php",
+                "Define $fillable array with allowed attributes",
+                "Add $casts for type casting",
+                "Define any relationships"
+            ],
+            "status": "pending",
+            "dependencies": [2],
+            "priority": 2,
+            "acceptance": [
+                "Model class exists",
+                "Fillable and casts defined",
+                "Model can be instantiated"
+            ]
+        },
+        {
+            "id": 4,
+            "title": "Add feature tests",
+            "description": "Write feature tests to verify the implementation",
+            "steps": [
+                "Create tests/Feature/ExampleTest.php",
+                "Test model creation and validation",
+                "Test relationships work correctly",
+                "Run php artisan test"
+            ],
+            "status": "pending",
+            "dependencies": [3],
+            "priority": 5,
+            "acceptance": [
+                "Test file exists",
+                "All tests pass",
+                "Key functionality covered"
+            ]
+        }
+    ],
+    "sources": [".laracode/specs/example/spec.md"]
+}

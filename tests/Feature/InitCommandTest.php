@@ -41,7 +41,7 @@ it('creates generate-tasks.md skill file', function () {
     $this->artisan('init', ['path' => $this->testPath])
         ->assertSuccessful();
 
-    $generateTasksPath = $this->testPath.'/.claude/skills/generate-tasks.md';
+    $generateTasksPath = $this->testPath.'/.claude/skills/generate-tasks/SKILL.md';
 
     expect(file_exists($generateTasksPath))->toBeTrue()
         ->and(file_get_contents($generateTasksPath))->toContain('Generate Tasks from Feature Description')
@@ -144,56 +144,6 @@ it('uses current directory when no path provided', function () {
     } finally {
         chdir($originalDir);
     }
-});
-
-it('merges settings and preserves existing settings', function () {
-    mkdir($this->testPath.'/.claude', 0755, true);
-
-    $existingSettings = [
-        'permissions' => [
-            'allow' => ['Read', 'Write'],
-        ],
-        'model' => 'claude-3-opus',
-    ];
-    file_put_contents(
-        $this->testPath.'/.claude/settings.json',
-        json_encode($existingSettings, JSON_PRETTY_PRINT)
-    );
-
-    $this->artisan('init', ['path' => $this->testPath])
-        ->assertSuccessful()
-        ->expectsOutputToContain('Merged');
-
-    $merged = json_decode(file_get_contents($this->testPath.'/.claude/settings.json'), true);
-
-    expect($merged['permissions']['allow'])->toBe(['Read', 'Write'])
-        ->and($merged['model'])->toBe('claude-3-opus')
-        ->and($merged)->toHaveKey('hooks');
-});
-
-it('merges settings and adds new hooks without duplicating existing ones', function () {
-    mkdir($this->testPath.'/.claude', 0755, true);
-
-    $existingSettings = [
-        'hooks' => [
-            'PreToolUse' => [
-                ['matcher' => 'Bash', 'commands' => ['echo "pre-bash"']],
-            ],
-        ],
-    ];
-    file_put_contents(
-        $this->testPath.'/.claude/settings.json',
-        json_encode($existingSettings, JSON_PRETTY_PRINT)
-    );
-
-    $this->artisan('init', ['path' => $this->testPath])
-        ->assertSuccessful()
-        ->expectsOutputToContain('Merged');
-
-    $merged = json_decode(file_get_contents($this->testPath.'/.claude/settings.json'), true);
-
-    expect($merged['hooks']['PreToolUse'])->toHaveCount(1)
-        ->and($merged['hooks']['PreToolUse'][0]['matcher'])->toBe('Bash');
 });
 
 it('detects similar command files and skips them', function () {

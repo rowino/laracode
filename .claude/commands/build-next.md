@@ -44,10 +44,10 @@ Implement the next pending task from the tasks.json file, then exit.
 
 7. **Signal build loop to continue**
    - The lock file is located next to tasks.json: `dirname(tasks.json) + '/index.lock'`
-   - Run: `laracode stop <path-to-lock-file>`
-   - Example: If tasks.json is at `.laracode/specs/my-feature/tasks.json`, run:
-     `laracode stop .laracode/specs/my-feature/index.lock`
-   - This signals the build loop to proceed to the next iteration
+   - Run: `laracode notify build <path-to-lock-file> --task=<task-id>`
+   - Example: If tasks.json is at `.laracode/specs/my-feature/tasks.json` and task ID is 5, run:
+     `laracode notify build .laracode/specs/my-feature/index.lock --task=5`
+   - This signals the build loop to proceed to the next iteration and records which task was completed
 
 8. **Exit immediately**
    - Only implement ONE task per invocation
@@ -70,5 +70,5 @@ When appending to cliff-notes.md, use this format:
 - Only ONE task per invocation
 - Always update tasks.json before and after
 - Always read cliff-notes.md at start, append at end
-- **Always run `laracode stop` with the lock file path after completion**
+- **Always run `laracode notify build` with the lock file path and task ID after completion**
 - Exit after completing the single task

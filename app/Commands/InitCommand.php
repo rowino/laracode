@@ -60,15 +60,8 @@ class InitCommand extends Command
         $this->handleCommandFile($buildNextPath, $this->getBuildNextContent(), '.claude/commands/build-next.md');
 
         // Create generate-tasks.md skill
-        $generateTasksPath = $projectPath.'/.claude/skills/generate-tasks.md';
-        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/skills/generate-tasks.md');
-
-        // Merge settings.json if it exists
-        $settingsPath = $projectPath.'/.claude/settings.json';
-        if (file_exists($settingsPath)) {
-            $this->mergeSettings($settingsPath);
-            $this->line('  <info>Merged</info> .claude/settings.json');
-        }
+        $generateTasksPath = $projectPath.'/.claude/skills/generate-tasks/SKILL.md';
+        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/skills/generate-tasks/SKILL.md');
 
         // Create sample tasks.json template
         $samplePath = $projectPath.'/.laracode/specs/example/tasks.json';
@@ -96,111 +89,7 @@ class InitCommand extends Command
 
     private function getBuildNextContent(): string
     {
-        return $this->loadStub('build-next.md');
-    }
-
-    private function getSettingsContent(): string
-    {
-        return json_encode([
-            'hooks' => [],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
-    }
-
-    private function mergeSettings(string $settingsPath): void
-    {
-        $existingContent = file_get_contents($settingsPath);
-        if ($existingContent === false) {
-            file_put_contents($settingsPath, $this->getSettingsContent());
-
-            return;
-        }
-
-        /** @var array<string, mixed>|null $existing */
-        $existing = json_decode($existingContent, true);
-        if ($existing === null) {
-            file_put_contents($settingsPath, $this->getSettingsContent());
-
-            return;
-        }
-
-        /** @var array<string, mixed> $template */
-        $template = json_decode($this->getSettingsContent(), true);
-
-        $merged = $this->deepMergeSettings($existing, $template);
-
-        file_put_contents(
-            $settingsPath,
-            json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
-        );
-    }
-
-    /**
-     * @param  array<string, mixed>  $existing
-     * @param  array<string, mixed>  $template
-     * @return array<string, mixed>
-     */
-    private function deepMergeSettings(array $existing, array $template): array
-    {
-        foreach ($template as $key => $value) {
-            if (! array_key_exists($key, $existing)) {
-                $existing[$key] = $value;
-            } elseif ($key === 'hooks' && is_array($value) && is_array($existing[$key])) {
-                $existing[$key] = $this->mergeHooks($existing[$key], $value);
-            } elseif (is_array($value) && is_array($existing[$key]) && ! $this->isSequentialArray($value)) {
-                $existing[$key] = $this->deepMergeSettings($existing[$key], $value);
-            }
-        }
-
-        return $existing;
-    }
-
-    /**
-     * @param  array<int|string, mixed>  $existingHooks
-     * @param  array<int|string, mixed>  $templateHooks
-     * @return array<int|string, mixed>
-     */
-    private function mergeHooks(array $existingHooks, array $templateHooks): array
-    {
-        foreach ($templateHooks as $hookType => $hookEntries) {
-            if (! is_array($hookEntries)) {
-                continue;
-            }
-
-            if (! isset($existingHooks[$hookType])) {
-                $existingHooks[$hookType] = $hookEntries;
-
-                continue;
-            }
-
-            if (! is_array($existingHooks[$hookType])) {
-                $existingHooks[$hookType] = $hookEntries;
-
-                continue;
-            }
-
-            $existingMatchers = array_column($existingHooks[$hookType], 'matcher');
-            foreach ($hookEntries as $entry) {
-                if (is_array($entry) && isset($entry['matcher'])) {
-                    if (! in_array($entry['matcher'], $existingMatchers, true)) {
-                        $existingHooks[$hookType][] = $entry;
-                    }
-                }
-            }
-        }
-
-        return $existingHooks;
-    }
-
-    /**
-     * @param  array<mixed>  $array
-     */
-    private function isSequentialArray(array $array): bool
-    {
-        if ($array === []) {
-            return true;
-        }
-
-        return array_keys($array) === range(0, count($array) - 1);
+        return $this->loadStub('commands/build-next.md');
     }
 
     private function handleCommandFile(string $filePath, string $templateContent, string $displayName): void
@@ -320,14 +209,14 @@ class InitCommand extends Command
 
     private function getSampleTasksContent(): string
     {
-        $stub = $this->loadStub('tasks.json');
+        $stub = $this->loadStub('samples/tasks.json');
 
         return str_replace('{{CREATED_DATE}}', date('c'), $stub);
     }
 
     private function getGenerateTasksContent(): string
     {
-        return $this->loadStub('generate-tasks.md');
+        return $this->loadStub('skills/generate-tasks/SKILL.md');
     }
 
     private function loadStub(string $filename): string
