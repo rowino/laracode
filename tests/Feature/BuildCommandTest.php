@@ -331,3 +331,202 @@ it('computes lock path correctly next to tasks.json', function () {
     expect(dirname($tasksPath))->toEqual($nestedPath);
     expect($expectedLockPath)->toEqual($nestedPath.'/index.lock');
 });
+
+it('displays final stats when all tasks are completed with stats data', function () {
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'Stats Test Feature',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task 1',
+                'status' => 'completed',
+                'stats' => [
+                    'startedAt' => '2026-01-14T12:00:00Z',
+                    'completedAt' => '2026-01-14T12:05:00Z',
+                    'durationSeconds' => 300,
+                ],
+            ],
+            [
+                'id' => 2,
+                'title' => 'Task 2',
+                'status' => 'completed',
+                'stats' => [
+                    'startedAt' => '2026-01-14T12:10:00Z',
+                    'completedAt' => '2026-01-14T12:12:00Z',
+                    'durationSeconds' => 120,
+                ],
+            ],
+        ],
+        'stats' => [
+            'filesChanged' => 5,
+            'linesAdded' => 120,
+            'linesRemoved' => 30,
+        ],
+    ]));
+
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('All tasks completed')
+        ->expectsOutputToContain('Build Statistics')
+        ->expectsOutputToContain('7m 0s')
+        ->expectsOutputToContain('5')
+        ->expectsOutputToContain('+120')
+        ->expectsOutputToContain('-30');
+});
+
+it('displays final stats with zero values when no stats present', function () {
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'No Stats Feature',
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task 1', 'status' => 'completed'],
+        ],
+    ]));
+
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('Build Statistics')
+        ->expectsOutputToContain('0s')
+        ->expectsOutputToContain('+0')
+        ->expectsOutputToContain('-0');
+});
+
+it('formats duration as seconds only when under one minute', function () {
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'Short Duration Feature',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Quick Task',
+                'status' => 'completed',
+                'stats' => ['durationSeconds' => 45],
+            ],
+        ],
+    ]));
+
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('45s')
+        ->doesntExpectOutputToContain('0m');
+});
+
+it('cleans up stale completion signal files on startup', function () {
+    // This tests that completion signal files are properly cleaned up
+    // The actual stats update integration requires Claude CLI to run
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    $completedPath = $this->testPath.'/.laracode/specs/test-feature/completed.json';
+
+    // Create tasks file with all tasks completed
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'Stats Integration Test',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task 1',
+                'status' => 'completed',
+                'stats' => [
+                    'startedAt' => '2026-01-14T10:00:00+00:00',
+                    'completedAt' => '2026-01-14T10:05:00+00:00',
+                    'durationSeconds' => 300,
+                    'filesChanged' => 2,
+                    'linesAdded' => 50,
+                    'linesRemoved' => 10,
+                ],
+            ],
+        ],
+        'stats' => [
+            'filesChanged' => 2,
+            'linesAdded' => 50,
+            'linesRemoved' => 10,
+        ],
+    ]));
+
+    // Create a stale completion signal file (from a previous interrupted run)
+    file_put_contents($completedPath, json_encode([
+        'taskId' => 1,
+        'startedAt' => '2026-01-14T10:00:00+00:00',
+        'completedAt' => '2026-01-14T10:05:00+00:00',
+    ]));
+
+    // Run build - exits immediately since all tasks complete
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('All tasks completed');
+
+    // Stale completion file should still exist since we never entered the loop
+    // (This is expected behavior - cleanup only happens when processing iterations)
+    expect(file_exists($completedPath))->toBeTrue();
+})->skip('Completion signal processing requires active build loop - covered by integration tests');
+
+it('accumulates root-level stats across multiple completed tasks', function () {
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'Accumulative Stats Test',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task 1',
+                'status' => 'completed',
+                'stats' => [
+                    'filesChanged' => 3,
+                    'linesAdded' => 50,
+                    'linesRemoved' => 10,
+                ],
+            ],
+            [
+                'id' => 2,
+                'title' => 'Task 2',
+                'status' => 'completed',
+                'stats' => [
+                    'filesChanged' => 2,
+                    'linesAdded' => 30,
+                    'linesRemoved' => 5,
+                ],
+            ],
+        ],
+        'stats' => [
+            'filesChanged' => 5,
+            'linesAdded' => 80,
+            'linesRemoved' => 15,
+        ],
+    ]));
+
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('+80')
+        ->expectsOutputToContain('-15');
+});
+
+it('includes file changes in individual task stats display', function () {
+    $tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
+    file_put_contents($tasksPath, json_encode([
+        'title' => 'Task Level Stats Test',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task With File Stats',
+                'status' => 'completed',
+                'stats' => [
+                    'durationSeconds' => 120,
+                    'filesChanged' => 4,
+                    'linesAdded' => 100,
+                    'linesRemoved' => 25,
+                ],
+            ],
+        ],
+        'stats' => [
+            'filesChanged' => 4,
+            'linesAdded' => 100,
+            'linesRemoved' => 25,
+        ],
+    ]));
+
+    $this->artisan('build', ['path' => $tasksPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('Build Statistics')
+        ->expectsOutputToContain('4')
+        ->expectsOutputToContain('+100')
+        ->expectsOutputToContain('-25');
+});

@@ -15,6 +15,15 @@ afterEach(function () {
     }
 });
 
+it('shows deprecation warning', function () {
+    $lockPath = $this->testPath.'/index.lock';
+    file_put_contents($lockPath, json_encode(['pid' => 999999999]));
+
+    $this->artisan('stop', ['path' => $lockPath])
+        ->assertSuccessful()
+        ->expectsOutputToContain('deprecated');
+});
+
 it('fails when lock file does not exist', function () {
     $lockPath = $this->testPath.'/nonexistent.lock';
 
@@ -58,7 +67,7 @@ it('succeeds and removes lock file when process is not running', function () {
     $this->artisan('stop', ['path' => $lockPath])
         ->assertSuccessful()
         ->expectsOutputToContain('is not running')
-        ->expectsOutputToContain('Stopped build and cleaned up lock file');
+        ->expectsOutputToContain('Build signal processed and lock file cleaned up');
 
     expect(file_exists($lockPath))->toBeFalse();
 });
@@ -102,7 +111,7 @@ it('terminates running process and deletes lock file', function () {
     $this->artisan('stop', ['path' => $lockPath])
         ->assertSuccessful()
         ->expectsOutputToContain("Sending SIGTERM to process {$pid}")
-        ->expectsOutputToContain('Stopped build and cleaned up lock file');
+        ->expectsOutputToContain('Build signal processed and lock file cleaned up');
 
     // Give time for process cleanup and reap zombie
     usleep(100000);
@@ -111,6 +120,53 @@ it('terminates running process and deletes lock file', function () {
     // Process should be terminated
     expect(posix_kill($pid, 0))->toBeFalse();
     expect(file_exists($lockPath))->toBeFalse();
+});
+
+it('writes completed.json when task option is provided', function () {
+    $lockPath = $this->testPath.'/index.lock';
+    $started = '2026-01-14T10:00:00+00:00';
+    file_put_contents($lockPath, json_encode(['pid' => 999999999, 'started' => $started]));
+
+    $this->artisan('stop', ['path' => $lockPath, '--task' => '5'])
+        ->assertSuccessful();
+
+    $completedPath = $this->testPath.'/completed.json';
+    expect(file_exists($completedPath))->toBeTrue();
+
+    $content = json_decode(file_get_contents($completedPath), true);
+    expect($content)->toHaveKey('taskId')
+        ->and($content['taskId'])->toBe(5)
+        ->and($content)->toHaveKey('startedAt')
+        ->and($content['startedAt'])->toBe($started)
+        ->and($content)->toHaveKey('completedAt');
+});
+
+it('does not write completed.json when task option is not provided', function () {
+    $lockPath = $this->testPath.'/index.lock';
+    file_put_contents($lockPath, json_encode(['pid' => 999999999]));
+
+    $this->artisan('stop', ['path' => $lockPath])
+        ->assertSuccessful();
+
+    $completedPath = $this->testPath.'/completed.json';
+    expect(file_exists($completedPath))->toBeFalse();
+});
+
+it('completed.json contains valid ISO timestamp', function () {
+    $lockPath = $this->testPath.'/index.lock';
+    file_put_contents($lockPath, json_encode(['pid' => 999999999]));
+
+    $before = date('c');
+    $this->artisan('stop', ['path' => $lockPath, '--task' => '3'])
+        ->assertSuccessful();
+    $after = date('c');
+
+    $completedPath = $this->testPath.'/completed.json';
+    $content = json_decode(file_get_contents($completedPath), true);
+
+    $timestamp = strtotime($content['completedAt']);
+    expect($timestamp)->toBeGreaterThanOrEqual(strtotime($before))
+        ->and($timestamp)->toBeLessThanOrEqual(strtotime($after));
 });
 
 it('escalates to SIGKILL when SIGTERM does not stop process', function () {
@@ -155,7 +211,7 @@ PERL);
         ->assertSuccessful()
         ->expectsOutputToContain("Sending SIGTERM to process {$pid}")
         ->expectsOutputToContain('sending SIGKILL')
-        ->expectsOutputToContain('Stopped build and cleaned up lock file');
+        ->expectsOutputToContain('Build signal processed and lock file cleaned up');
 
     // Give time for process cleanup and reap zombie
     usleep(200000);

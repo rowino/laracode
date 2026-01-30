@@ -1,0 +1,29 @@
+{
+    "_readme": "LaraCode Watch Configuration - Configure file watching for @claude comment processing",
+    "paths": [
+        "app/",
+        "routes/",
+        "resources/"
+    ],
+    "searchWord": "@claude",
+    "stopWord": "claude!",
+    "mode": "interactive",
+    "excludePatterns": [
+        "**/vendor/**",
+        "**/node_modules/**",
+        "**/storage/**",
+        "**/.git/**",
+        "**/.idea/**",
+        "**/.vscode/**",
+        "**/bootstrap/cache/**",
+        "**/*.log",
+        "**/.DS_Store"
+    ],
+    "_options": {
+        "paths": "Array of directories/files to watch for changes",
+        "searchWord": "Comment marker to search for in files (default: @claude)",
+        "stopWord": "Trigger word in comments to start processing (default: claude!)",
+        "mode": "Permission mode: interactive (prompts), accept (auto-approve edits), yolo (full auto)",
+        "excludePatterns": "Glob patterns for files/directories to ignore"
+    }
+}

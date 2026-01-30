@@ -41,6 +41,7 @@ class InitCommand extends Command
             '.claude',
             '.claude/commands',
             '.claude/skills',
+            '.claude/scripts',
         ];
 
         foreach ($directories as $dir) {
@@ -63,6 +64,19 @@ class InitCommand extends Command
         $generateTasksPath = $projectPath.'/.claude/skills/generate-tasks/SKILL.md';
         $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/skills/generate-tasks/SKILL.md');
 
+        // Create process-comments.md command
+        $processCommentsPath = $projectPath.'/.claude/commands/process-comments.md';
+        $this->handleCommandFile($processCommentsPath, $this->getProcessCommentsContent(), '.claude/commands/process-comments.md');
+
+        // Create watch.json config (only if it doesn't exist or --force)
+        $watchConfigPath = $projectPath.'/.laracode/watch.json';
+        if (! file_exists($watchConfigPath) || $force) {
+            file_put_contents($watchConfigPath, $this->getWatchConfigContent());
+            $this->line('  <info>Created</info> .laracode/watch.json');
+        } else {
+            $this->line('  <comment>Exists</comment> .laracode/watch.json');
+        }
+
         // Create sample tasks.json template
         $samplePath = $projectPath.'/.laracode/specs/example/tasks.json';
         $sampleDir = dirname($samplePath);
@@ -75,6 +89,18 @@ class InitCommand extends Command
         } else {
             $this->line('  <comment>Exists</comment> .laracode/specs/example/tasks.json');
         }
+
+        // Create statusline script
+        $statuslinePath = $projectPath.'/.claude/scripts/statusline.php';
+        if (! file_exists($statuslinePath) || $force) {
+            file_put_contents($statuslinePath, $this->getStatuslineContent());
+            $this->line('  <info>Created</info> .claude/scripts/statusline.php');
+        } else {
+            $this->line('  <comment>Exists</comment> .claude/scripts/statusline.php');
+        }
+
+        // Update settings.local.json with statusLine config
+        $this->updateSettingsWithStatusline($projectPath);
 
         $this->newLine();
         $this->info('✓ LaraCode initialized!');
@@ -219,6 +245,16 @@ class InitCommand extends Command
         return $this->loadStub('skills/generate-tasks/SKILL.md');
     }
 
+    private function getProcessCommentsContent(): string
+    {
+        return $this->loadStub('commands/process-comments.md');
+    }
+
+    private function getWatchConfigContent(): string
+    {
+        return $this->loadStub('watch.json');
+    }
+
     private function loadStub(string $filename): string
     {
         $stubPath = dirname(__DIR__, 2).'/stubs/'.$filename;
@@ -229,5 +265,39 @@ class InitCommand extends Command
         }
 
         return $content;
+    }
+
+    private function getStatuslineContent(): string
+    {
+        return $this->loadStub('scripts/statusline.php');
+    }
+
+    private function updateSettingsWithStatusline(string $projectPath): void
+    {
+        $settingsPath = $projectPath.'/.claude/settings.local.json';
+
+        $settings = [];
+        if (file_exists($settingsPath)) {
+            $content = file_get_contents($settingsPath);
+            if ($content !== false) {
+                $settings = json_decode($content, true) ?? [];
+            }
+        }
+
+        // Only update if statusLine is not already configured
+        if (! isset($settings['statusLine'])) {
+            $settings['statusLine'] = [
+                'type' => 'command',
+                'command' => 'php .claude/scripts/statusline.php',
+            ];
+
+            file_put_contents(
+                $settingsPath,
+                json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
+            );
+            $this->line('  <info>Updated</info> .claude/settings.local.json (statusLine config)');
+        } else {
+            $this->line('  <comment>Exists</comment> .claude/settings.local.json (statusLine already configured)');
+        }
     }
 }

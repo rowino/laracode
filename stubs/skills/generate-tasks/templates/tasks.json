@@ -1,0 +1,25 @@
+{
+  "title": "Feature Name",
+  "branch": "feature/feature-slug",
+  "created": "2026-01-12T10:00:00Z",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Short task title (5-10 words)",
+      "description": "Detailed description of what needs to be done\n\n📚 See refs:\n- [API Documentation](./ref-api-docs.md)",
+      "steps": [
+        "Specific step 1",
+        "Specific step 2"
+      ],
+      "status": "pending",
+      "dependencies": [],
+      "priority": 1,
+      "refs": ["ref-api-docs.md"],
+      "acceptance": [
+        "Testable acceptance criterion 1",
+        "Testable acceptance criterion 2"
+      ]
+    }
+  ],
+  "sources": [".laracode/specs/feature-slug/spec.md"]
+}

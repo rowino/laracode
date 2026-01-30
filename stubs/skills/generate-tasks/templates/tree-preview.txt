@@ -1,0 +1,18 @@
+📋 Feature Name (N tasks)
+│
+├── 🔴 Priority 1 (Critical)
+│   ├── [1] Task title
+│   └── [2] Task title → depends on: [1]
+│
+├── 🟠 Priority 2 (High)
+│   ├── [3] Task title → depends on: [1, 2]
+│   └── [4] Task title → depends on: [2]
+│
+├── 🟡 Priority 3 (Medium)
+│   └── [5] Task title → depends on: [3, 4]
+│
+├── 🟢 Priority 4 (Low)
+│   └── [6] Task title → depends on: [5]
+│
+└── 🔵 Priority 5 (Lowest)
+    └── [7] Task title → depends on: [6]
