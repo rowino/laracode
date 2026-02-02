@@ -57,12 +57,14 @@ class WatchService
             2 => STDERR,
         ];
 
+        $env = array_merge($_ENV, getenv(), ['LARACODE_LOCK_FILE' => $lockPath]);
+
         $process = proc_open(
             $command,
             $descriptorspec,
             $pipes,
             $projectPath,
-            null
+            $env
         );
 
         if (! is_resource($process)) {
@@ -143,6 +145,16 @@ class WatchService
         }
 
         proc_close($process);
+        $this->restoreTerminal();
+    }
+
+    private function restoreTerminal(): void
+    {
+        if (defined('STDOUT') && function_exists('posix_isatty') && posix_isatty(STDOUT)) {
+            echo "\e[?25h";    // Show cursor
+            echo "\e[?1004l"; // Disable focus reporting
+            system('stty sane 2>/dev/null');
+        }
     }
 
     public function cleanupLockFile(string $lockPath): void

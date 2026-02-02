@@ -78,6 +78,8 @@ class BuildCommand extends Command
         $this->info("Project path: {$projectPath}");
         $this->displayStats($tasks);
 
+        $this->registerSignalHandlers($lockPath);
+
         $iteration = 0;
 
         while ($iteration < $maxIterations) {
@@ -182,12 +184,14 @@ class BuildCommand extends Command
             2 => STDERR,
         ];
 
+        $env = array_merge($_ENV, getenv(), ['LARACODE_LOCK_FILE' => $lockPath]);
+
         $process = proc_open(
             implode(' ', $command),
             $descriptorspec,
             $pipes,
             $projectPath,
-            null
+            $env
         );
 
         if (! is_resource($process)) {
@@ -240,9 +244,36 @@ class BuildCommand extends Command
         }
 
         proc_close($process);
+        $this->restoreTerminal();
 
         // Clean up lock file if it still exists
         @unlink($lockPath);
+    }
+
+    private function restoreTerminal(): void
+    {
+        if (defined('STDOUT') && function_exists('posix_isatty') && posix_isatty(STDOUT)) {
+            echo "\e[?25h";    // Show cursor
+            echo "\e[?1004l"; // Disable focus reporting
+            system('stty sane 2>/dev/null');
+        }
+    }
+
+    private function registerSignalHandlers(string $lockPath): void
+    {
+        if (! function_exists('pcntl_signal')) {
+            return;
+        }
+
+        $cleanup = function () use ($lockPath): void {
+            @unlink($lockPath);
+            $this->restoreTerminal();
+            exit(130); // Standard exit code for SIGINT
+        };
+
+        pcntl_signal(SIGINT, $cleanup);
+        pcntl_signal(SIGTERM, $cleanup);
+        pcntl_async_signals(true);
     }
 
     /**

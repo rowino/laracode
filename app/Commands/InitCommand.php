@@ -42,6 +42,7 @@ class InitCommand extends Command
             '.claude/commands',
             '.claude/skills',
             '.claude/scripts',
+            '.claude/hooks',
         ];
 
         foreach ($directories as $dir) {
@@ -99,7 +100,16 @@ class InitCommand extends Command
             $this->line('  <comment>Exists</comment> .claude/scripts/statusline.php');
         }
 
-        // Update settings.local.json with statusLine config
+        // Create session-start hook
+        $sessionStartPath = $projectPath.'/.claude/hooks/session-start.php';
+        if (! file_exists($sessionStartPath) || $force) {
+            file_put_contents($sessionStartPath, $this->getSessionStartHookContent());
+            $this->line('  <info>Created</info> .claude/hooks/session-start.php');
+        } else {
+            $this->line('  <comment>Exists</comment> .claude/hooks/session-start.php');
+        }
+
+        // Update settings.local.json with statusLine and hooks config
         $this->updateSettingsWithStatusline($projectPath);
 
         $this->newLine();
@@ -272,6 +282,11 @@ class InitCommand extends Command
         return $this->loadStub('scripts/statusline.php');
     }
 
+    private function getSessionStartHookContent(): string
+    {
+        return $this->loadStub('hooks/session-start.php');
+    }
+
     private function updateSettingsWithStatusline(string $projectPath): void
     {
         $settingsPath = $projectPath.'/.claude/settings.local.json';
@@ -284,20 +299,42 @@ class InitCommand extends Command
             }
         }
 
-        // Only update if statusLine is not already configured
+        $updated = false;
+
+        // Add statusLine if not already configured
         if (! isset($settings['statusLine'])) {
             $settings['statusLine'] = [
                 'type' => 'command',
                 'command' => 'php .claude/scripts/statusline.php',
             ];
+            $updated = true;
+        }
 
+        // Add SessionStart hook if not already configured
+        if (! isset($settings['hooks']['SessionStart'])) {
+            $settings['hooks'] = $settings['hooks'] ?? [];
+            $settings['hooks']['SessionStart'] = [
+                [
+                    'matcher' => '*',
+                    'hooks' => [
+                        [
+                            'type' => 'command',
+                            'command' => 'php .claude/hooks/session-start.php',
+                        ],
+                    ],
+                ],
+            ];
+            $updated = true;
+        }
+
+        if ($updated) {
             file_put_contents(
                 $settingsPath,
                 json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
             );
-            $this->line('  <info>Updated</info> .claude/settings.local.json (statusLine config)');
+            $this->line('  <info>Updated</info> .claude/settings.local.json');
         } else {
-            $this->line('  <comment>Exists</comment> .claude/settings.local.json (statusLine already configured)');
+            $this->line('  <comment>Exists</comment> .claude/settings.local.json (already configured)');
         }
     }
 }
