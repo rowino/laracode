@@ -8,6 +8,7 @@ An autonomous build system for Laravel projects using Claude AI. LaraCode breaks
 - **Dependency Resolution**: Executes tasks in correct order based on dependencies
 - **Progress Tracking**: Visual progress display with blocked task detection
 - **Cliff Notes**: Accumulated context passed between task executions
+- **Watch Mode**: Real-time file monitoring for `@ai` comments with automatic Claude processing
 - **Multiple Permission Modes**: yolo (auto-approve), accept (interactive), or default
 
 ## Installation
@@ -34,10 +35,75 @@ laracode init
 ```
 
 This creates:
-- `.claude/commands/build-next.md` - Task execution skill
-- `.claude/commands/generate-tasks.md` - Task generation skill
-- `.claude/settings.json` - Claude configuration
+- `.laracode/` directory
 - `.laracode/specs/example/tasks.json` - Sample task file
+- `.laracode/watch.json` - Watch configuration
+- `.claude/commands/build-next.md` - Task execution command
+- `.claude/commands/process-comments.md` - Comment processing command
+- `.claude/skills/generate-tasks/SKILL.md` - Task generation skill
+- `.claude/scripts/statusline.php` - Status display script
+- `.claude/hooks/session-start.php` - Session hook
+- `.claude/settings.local.json` - Claude configuration
+
+## Watch Mode
+
+Monitor files for `@ai` comments and automatically trigger Claude processing.
+
+### Installation
+
+Watch mode requires Node.js with chokidar:
+
+```bash
+npm install chokidar
+```
+
+### Usage
+
+```bash
+laracode watch
+```
+
+Options:
+- `--paths=*` - Directories to watch (default: app/, routes/, resources/)
+- `--search-word=@ai` - Comment marker to search for
+- `--stop-word=ai!` - Trigger word to start processing
+- `--mode=interactive` - Permission mode: `yolo`, `accept`, `interactive`
+- `--config=` - Path to watch.json config
+- `--exclude=*` - Patterns to exclude
+
+### How It Works
+
+1. Add `@ai` comments in your code describing what you need
+2. Include the stop word `ai!` when ready to process
+3. LaraCode extracts all comments and invokes Claude
+
+### Example
+
+```php
+// @ai Create a method to validate email addresses
+// @ai Should return boolean and throw InvalidEmailException
+// ai!
+```
+
+### Configuration
+
+Create `.laracode/watch.json` for persistent settings (config values override CLI defaults):
+
+```json
+{
+    "paths": ["app/", "routes/", "resources/"],
+    "searchWord": "@ai",
+    "stopWord": "ai!",
+    "mode": "interactive",
+    "excludePatterns": ["**/vendor/**", "**/node_modules/**"]
+}
+```
+
+### Supported File Types
+
+PHP, JavaScript/TypeScript, Python, Ruby, HTML, Vue, Svelte, CSS/SCSS, SQL, Shell/Bash, YAML, Go, Rust, Java, Kotlin, Scala, C/C++, Blade templates
+
+## Quick Start (continued)
 
 ### 2. Generate Tasks
 
@@ -69,6 +135,27 @@ Options:
 ### `laracode init`
 
 Initializes LaraCode in the current project, creating necessary files and directories.
+
+### `laracode watch`
+
+Monitors files for `@ai` comments and triggers Claude processing when the stop word is detected.
+
+```bash
+# Watch with default settings
+laracode watch
+
+# Watch specific paths
+laracode watch --paths=app/Models --paths=app/Services
+
+# Use custom markers
+laracode watch --search-word=@claude --stop-word=claude!
+
+# Auto-approve all Claude actions
+laracode watch --mode=yolo
+
+# Use config file
+laracode watch --config=.laracode/watch.json
+```
 
 ### `laracode build <path>`
 
@@ -320,15 +407,25 @@ Running: claude --dangerously-skip-permissions /build-next
 your-project/
 ├── .claude/
 │   ├── commands/
-│   │   ├── build-next.md      # Task execution skill
-│   │   └── generate-tasks.md  # Task generation skill
-│   └── settings.json          # Claude configuration
+│   │   ├── build-next.md         # Task execution command
+│   │   └── process-comments.md   # Comment processing command
+│   ├── skills/
+│   │   └── generate-tasks/
+│   │       └── SKILL.md          # Task generation skill
+│   ├── scripts/
+│   │   └── statusline.php        # Status display script
+│   ├── hooks/
+│   │   └── session-start.php     # Session hook
+│   └── settings.local.json       # Claude configuration
 └── .laracode/
+    ├── watch.json                # Watch configuration
+    ├── watch.lock                # Process lock file
+    ├── comments.json             # Extracted comments (temporary)
     └── specs/
         └── feature-name/
-            ├── spec.md        # Feature specification
-            ├── tasks.json     # Task definitions
-            └── cliff-notes.md # Accumulated context
+            ├── spec.md           # Feature specification
+            ├── tasks.json        # Task definitions
+            └── cliff-notes.md    # Accumulated context
 ```
 
 ## Requirements
@@ -336,6 +433,7 @@ your-project/
 - PHP 8.2+
 - Claude CLI (`claude` command available)
 - Composer
+- Node.js (for watch mode - requires chokidar)
 
 ## License
 
