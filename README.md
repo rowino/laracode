@@ -19,34 +19,25 @@ laracode init
 
 ### 2. Create a Plan
 
-Describe your feature to Claude:
-
-```
-I need a user authentication system with:
-- Registration with email verification
-- Login/logout
-- Password reset
-```
-
-### 3. Generate Tasks
+Use plan mode to design your feature. When done, press `esc` and run:
 
 ```
 /generate-tasks
 ```
 
-### 4. Run the Build
+### 3. Run the Build
 
 ```bash
 laracode build .laracode/specs/my-feature/tasks.json --mode=yolo
 ```
 
-### 5. Start Watch Mode
+### 4. Start Watch Mode
 
 ```bash
 laracode watch
 ```
 
-### 6. Review and Refine
+### 5. Review and Refine
 
 Add `@ai` comments in your code to request changes:
 
@@ -55,7 +46,7 @@ Add `@ai` comments in your code to request changes:
 // @ai Add proper error handling
 ```
 
-### 7. Submit for Processing
+### 6. Submit for Processing
 
 Add `ai!` when ready to trigger Claude:
 
