@@ -62,36 +62,54 @@ cd your-laravel-project
 laracode init
 ```
 
-This creates:
-- `.laracode/` directory with watch configuration
-- `.claude/commands/` with task execution commands
-- `.claude/skills/` with task generation skill
-- `.claude/scripts/` and `.claude/hooks/` for status display
-- `.claude/settings.local.json` for Claude configuration
+### 2. Create a Plan
 
-### 2. Generate Tasks
-
-Describe your feature to Claude and run:
+Describe your feature to Claude:
 
 ```
 I need a user authentication system with:
 - Registration with email verification
 - Login/logout
 - Password reset
+```
 
+### 3. Generate Tasks
+
+Run the generate tasks skill:
+
+```
 /generate-tasks
 ```
 
-Or provide a spec file:
-
-```
-/generate-tasks .laracode/specs/my-feature/spec.md
-```
-
-### 3. Run the Build
+### 4. Run the Build
 
 ```bash
 laracode build .laracode/specs/my-feature/tasks.json --mode=yolo
+```
+
+### 5. Start Watch Mode
+
+```bash
+laracode watch
+```
+
+### 6. Review and Refine
+
+Add `@ai` comments in your code to request changes:
+
+```php
+// @ai Refactor this method to use dependency injection
+// @ai Add proper error handling
+```
+
+### 7. Submit for Processing
+
+Add `ai!` when ready to trigger Claude:
+
+```php
+// @ai Refactor this method to use dependency injection
+// @ai Add proper error handling
+// ai!
 ```
 
 ## Commands
