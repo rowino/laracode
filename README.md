@@ -60,10 +60,21 @@ Add `ai!` when ready to trigger Claude:
 
 The `/generate-tasks` skill generates structured task files from conversations or spec files.
 
-### What It Creates
+### Output
 
-1. **spec.md** - Feature specification with requirements and acceptance criteria
-2. **tasks.json** - Structured task breakdown with dependencies
+```
+✓ Generated tasks for: Blog Module
+
+Directory: .laracode/specs/blog-module/
+  - spec.md
+  - tasks.json
+
+Tasks: 12 total
+  Setup: 2 (priority 1-10)
+  Core: 6 (priority 11-80)
+  Tests: 3 (priority 81-95)
+  Docs: 1 (priority 96-99)
+```
 
 ### Task Granularity
 
@@ -87,7 +98,7 @@ laracode build <path-to-tasks.json> [options]
 |--------|---------|-------------|
 | `--iterations` | 100 | Maximum number of tasks to execute |
 | `--delay` | 3 | Seconds between tasks |
-| `--mode` | default | Permission mode: `yolo`, `accept`, or `default` |
+| `--mode` | yolo | Permission mode: `yolo`, `accept`, or `default` |
 
 ### Examples
 
@@ -109,7 +120,7 @@ laracode watch [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--paths` | app/, routes/, resources/ | Directories to watch |
+| `--paths` | app/, routes/, resources/, tests/ | Directories to watch |
 | `--search-word` | @ai | Comment marker to search for |
 | `--stop-word` | ai! | Trigger word to start processing |
 | `--mode` | interactive | Permission mode: `yolo`, `accept`, `interactive` |
@@ -128,7 +139,7 @@ Create `.laracode/watch.json` for persistent settings:
 
 ```json
 {
-    "paths": ["app/", "routes/", "resources/"],
+    "paths": ["app/", "routes/", "resources/", "tests/"],
     "searchWord": "@ai",
     "stopWord": "ai!",
     "mode": "interactive",
