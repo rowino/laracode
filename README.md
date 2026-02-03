@@ -8,14 +8,6 @@ An autonomous build system for Laravel projects using Claude AI. LaraCode breaks
 composer global require laracode/laracode
 ```
 
-Or clone and install locally:
-
-```bash
-git clone https://github.com/rowino/laracode.git
-cd laracode/laracode-cli
-composer install
-```
-
 ## Quick Start
 
 ### 1. Initialize a Project
