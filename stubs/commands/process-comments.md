@@ -189,7 +189,48 @@ If rejected:
 - Call `laracode notify plan-rejected '{"reason":"User feedback"}'`
 - Exit - watch loop continues monitoring
 
-### Step 8: Generate spec.md (After Approval)
+### Step 7.5: Choose Execution Mode (Interactive Mode Only)
+
+After plan approval, use `AskUserQuestion` to ask how to proceed:
+
+**Question**: "How would you like to execute this plan?"
+
+**Options**:
+1. **One-shot** (Recommended) - Compact and execute now
+   - Uses /compact to clear context for maximum token budget
+   - Implements full plan in current session
+   - Best for: Small to medium features, quick iterations
+
+2. **Generate tasks** - Break into tasks and use build command
+   - Creates spec.md and tasks.json
+   - Build loop executes one task at a time
+   - Best for: Large features, resumable work, tracking progress
+
+#### One-shot Path
+
+If user chooses one-shot:
+1. Call `/compact` to clear conversation context
+2. Read the plan file from `.claude/plans/{feature-slug}.md`
+3. Implement the entire plan directly:
+   - Follow the Implementation Approach from the plan
+   - Create/modify files as specified in "Files to Create" and "Files to Modify"
+   - Use Edit/Write tools for all changes
+   - Run tests after implementation
+4. After implementation complete:
+   - Remove processed @claude comments from source files
+   - Signal completion:
+     ```bash
+     laracode notify oneshot-complete '{"planPath":".claude/plans/{feature-slug}.md","filesChanged":N}'
+     ```
+5. Call `laracode exit` to return control to watch mode
+
+#### Generate Tasks Path
+
+If user chooses generate tasks:
+- Continue to Step 8 (generate spec.md)
+- Proceed with current workflow (unchanged)
+
+### Step 8: Generate spec.md (After Approval - Generate Tasks Path Only)
 
 After plan approval, create the formal specification:
 
@@ -304,20 +345,22 @@ This allows the watch command to:
 3. **Enter plan mode** with `EnterPlanMode`
 4. Explore codebase, write plan to `.claude/plans/{slug}.md`
 5. **Exit plan mode** with `ExitPlanMode` for user approval
-6. After approval: generate spec.md and tasks.json
-7. Notify tasks-ready, wait for user decision
-8. Notify watch-complete
-9. **Exit Claude** with `laracode exit`
+6. After approval: **Ask execution mode** (Step 7.5)
+7. **If one-shot**: Compact, implement, remove @claude comments, notify oneshot-complete, exit
+8. **If generate tasks**: Generate spec.md and tasks.json, notify tasks-ready, wait for user decision
+9. Notify watch-complete
+10. **Exit Claude** with `laracode exit`
 
 ### Yolo Mode
 1. Read comments.json
 2. Display found comments
 3. **Skip plan mode** - analyze directly
-4. Generate spec.md and tasks.json immediately
-5. Notify tasks-ready (no wait)
-6. Notify watch-complete
-7. **Exit Claude** with `laracode exit`
-8. Watch auto-starts build loop
+4. **Auto-select one-shot** (fast execution, no task generation)
+5. Implement plan directly
+6. Remove @claude comments from source files
+7. Notify oneshot-complete
+8. Notify watch-complete
+9. **Exit Claude** with `laracode exit`
 
 ### Accept Mode
 1. Read comments.json
@@ -325,21 +368,25 @@ This allows the watch command to:
 3. **Enter plan mode** with `EnterPlanMode`
 4. Explore codebase, write plan
 5. **Auto-approve** plan (skip ExitPlanMode wait)
-6. Generate spec.md and tasks.json
-7. Notify tasks-ready, pause for edits review
-8. Notify watch-complete
-9. **Exit Claude** with `laracode exit`
+6. **Auto-select generate tasks** (for reviewable increments)
+7. Generate spec.md and tasks.json
+8. Notify tasks-ready, pause for edits review
+9. Notify watch-complete
+10. **Exit Claude** with `laracode exit`
 
 ## Critical Rules
 
 - **Interactive/Accept modes**: MUST use `EnterPlanMode` to explore codebase first
-- **Yolo mode**: Skip plan mode, execute directly
+- **Yolo mode**: Skip plan mode, auto-select one-shot, execute directly
 - Read comments.json before anything else
 - Display found comments clearly with file:line format
 - Write plan to `.claude/plans/{feature-slug}.md`
 - Use `ExitPlanMode` to get user approval (interactive mode)
-- Create spec.md capturing intent from all comments
-- Generate realistic task counts based on comment complexity
+- **One-shot path**: MUST call `/compact` before implementing
+- **One-shot path**: MUST remove @claude comments from source files after implementation
+- **One-shot path**: Use `laracode notify oneshot-complete` for completion signal
+- **Generate tasks path**: Create spec.md capturing intent from all comments
+- **Generate tasks path**: Generate realistic task counts based on comment complexity
 - Use `laracode notify` for all coordination signals
 - Always output the summary before exiting
 - **ALWAYS call `laracode exit` as the final step** to return control to watch mode
@@ -357,7 +404,7 @@ This allows the watch command to:
 
 ## Example Flow
 
-### Interactive Mode
+### Interactive Mode + One-shot Path
 
 ```
 1. Watch detects @claude! stop word
@@ -369,12 +416,39 @@ This allows the watch command to:
 7. Claude writes plan to .claude/plans/{slug}.md
 8. Claude calls ExitPlanMode
 9. User reviews and approves plan
-10. Claude generates spec.md and tasks.json
-11. Calls: laracode notify tasks-ready ... --mode=interactive
-12. User chooses to start build
-13. Calls: laracode notify watch-complete ...
-14. Calls: laracode exit
-15. Watch command resumes, starts build loop
+10. Claude asks: "How would you like to execute this plan?"
+11. User chooses: "One-shot"
+12. Claude calls /compact to clear context
+13. Claude reads plan from .claude/plans/{slug}.md
+14. Claude implements entire plan (Edit/Write tools)
+15. Claude runs tests
+16. Claude removes @claude comments from source files
+17. Calls: laracode notify oneshot-complete '{"planPath":".claude/plans/{slug}.md","filesChanged":N}'
+18. Calls: laracode notify watch-complete ...
+19. Calls: laracode exit
+20. Watch command resumes monitoring
+```
+
+### Interactive Mode + Generate Tasks Path
+
+```
+1. Watch detects @claude! stop word
+2. WatchService extracts comments to comments.json
+3. WatchService invokes Claude with /process-comments
+4. Claude reads comments.json, displays comments
+5. Claude calls EnterPlanMode
+6. Claude explores codebase (Glob, Grep, Read)
+7. Claude writes plan to .claude/plans/{slug}.md
+8. Claude calls ExitPlanMode
+9. User reviews and approves plan
+10. Claude asks: "How would you like to execute this plan?"
+11. User chooses: "Generate tasks"
+12. Claude generates spec.md and tasks.json
+13. Calls: laracode notify tasks-ready ... --mode=interactive
+14. User chooses to start build
+15. Calls: laracode notify watch-complete ...
+16. Calls: laracode exit
+17. Watch command resumes, starts build loop
 ```
 
 ### Yolo Mode
@@ -385,11 +459,32 @@ This allows the watch command to:
 3. WatchService invokes Claude with /process-comments
 4. Claude reads comments.json, displays comments
 5. Claude analyzes directly (no plan mode)
-6. Claude creates spec.md and tasks.json
-7. Calls: laracode notify tasks-ready ... --mode=yolo
-8. Calls: laracode notify watch-complete ...
-9. Calls: laracode exit
-10. Watch command resumes, auto-starts build loop
+6. Claude auto-selects one-shot (fast execution)
+7. Claude implements plan directly
+8. Claude removes @claude comments from source files
+9. Calls: laracode notify oneshot-complete '{"planPath":".claude/plans/{slug}.md","filesChanged":N}'
+10. Calls: laracode notify watch-complete ...
+11. Calls: laracode exit
+12. Watch command resumes monitoring
+```
+
+### Accept Mode
+
+```
+1. Watch detects @claude! stop word
+2. WatchService extracts comments to comments.json
+3. WatchService invokes Claude with /process-comments
+4. Claude reads comments.json, displays comments
+5. Claude calls EnterPlanMode
+6. Claude explores codebase, writes plan
+7. Claude auto-approves plan (no ExitPlanMode wait)
+8. Claude auto-selects generate tasks (for reviewable increments)
+9. Claude generates spec.md and tasks.json
+10. Calls: laracode notify tasks-ready ... --mode=accept
+11. Pause for edits review
+12. Calls: laracode notify watch-complete ...
+13. Calls: laracode exit
+14. Watch command resumes
 ```
 
 ## Error Handling

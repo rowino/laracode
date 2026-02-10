@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace App\Commands;
 
+use App\Enums\BuildMode;
+use App\Services\AgentRunner;
 use App\Services\CommentExtractor;
+use App\Services\Settings\Dto\WatchSettings;
+use App\Services\Settings\SettingsService;
+use App\Services\Settings\SettingsWriter;
 use App\Services\WatchService;
 use LaravelZero\Framework\Commands\Command;
 
@@ -15,16 +20,18 @@ class WatchCommand extends Command
 {
     protected $signature = 'watch
         {--paths=* : Paths to watch (default: app/, routes/, resources/)}
-        {--stop-word=ai! : Stop word to trigger processing}
-        {--search-word=@ai : Comment marker to search for (default: @ai)}
+        {--stop-word= : Stop word to trigger processing}
+        {--search-word= : Comment marker to search for}
         {--mode=interactive : Permission mode: yolo, accept, interactive}
-        {--config= : Path to watch.json config file}
         {--exclude=* : Additional patterns to exclude}';
 
     protected $description = 'Watch files for @claude comments and process them when stop word is detected';
 
     /** @var array<string> */
     private array $changedFiles = [];
+
+    /** @var array<string> Files with search word comments but no stop word yet */
+    private array $pendingCommentFiles = [];
 
     /** @var resource|null */
     private mixed $watcherProcess = null;
@@ -33,6 +40,12 @@ class WatchCommand extends Command
 
     private WatchService $watchService;
 
+    private AgentRunner $agentRunner;
+
+    private SettingsService $settings;
+
+    private SettingsWriter $settingsWriter;
+
     /** @var array<string> */
     private array $watchPaths = [];
 
@@ -40,11 +53,19 @@ class WatchCommand extends Command
 
     private string $watchSearchWord = '';
 
-    public function __construct(CommentExtractor $commentExtractor, WatchService $watchService)
-    {
+    public function __construct(
+        CommentExtractor $commentExtractor,
+        WatchService $watchService,
+        AgentRunner $agentRunner,
+        SettingsService $settings,
+        SettingsWriter $settingsWriter
+    ) {
         parent::__construct();
         $this->commentExtractor = $commentExtractor;
         $this->watchService = $watchService;
+        $this->agentRunner = $agentRunner;
+        $this->settings = $settings;
+        $this->settingsWriter = $settingsWriter;
     }
 
     public function handle(): int
@@ -53,30 +74,36 @@ class WatchCommand extends Command
             return self::FAILURE;
         }
 
-        $config = $this->loadConfig();
-        $paths = $this->resolvePaths($config);
-        $stopWord = $this->resolveStopWord($config);
-        $searchWord = $this->resolveSearchWord($config);
-        $mode = $this->resolveMode($config);
-        $excludePatterns = $this->resolveExcludePatterns($config);
-
-        $this->watchPaths = $paths;
-        $this->watchStopWord = $stopWord;
-        $this->watchSearchWord = $searchWord;
-
-        $this->displayStartup($paths, $stopWord, $searchWord, $mode);
-
         $projectPath = $this->resolveProjectPath();
+        $this->settings->setProjectPath($projectPath);
+
+        $watchSettings = $this->settings->watch()
+            ->withOverrides($this->getCliOverrides());
+
+        if (! $watchSettings->isConfigured()) {
+            $watchSettings = $this->promptForWatchWords($watchSettings, $projectPath);
+        }
+
+        $this->watchPaths = $watchSettings->paths;
+        $this->watchStopWord = $watchSettings->stopWord;
+        $this->watchSearchWord = $watchSettings->searchWord;
+
+        $this->displayStartup($watchSettings);
+
         $lockPath = $projectPath.'/.laracode/watch.lock';
 
         $this->line('<fg=gray>Scanning for existing stop words...</>');
-        $scanResult = $this->scanAllPathsForStopWord($paths, $stopWord, $searchWord);
+        $scanResult = $this->scanAllPathsForStopWord(
+            $watchSettings->paths,
+            $watchSettings->stopWord,
+            $watchSettings->searchWord
+        );
 
         if ($scanResult['found']) {
             $this->info('Stop word found on startup! Processing immediately...');
             $this->changedFiles = array_unique($scanResult['files']);
 
-            $this->triggerProcessing($searchWord, $mode, $projectPath, $lockPath);
+            $this->triggerProcessing($watchSettings->searchWord, $watchSettings->mode, $projectPath, $lockPath);
 
             $this->changedFiles = [];
             $this->newLine();
@@ -85,7 +112,7 @@ class WatchCommand extends Command
             $this->line('<fg=gray>No stop words found. Starting watch...</>');
         }
 
-        $watcherProcess = $this->spawnWatcher($paths, $excludePatterns);
+        $watcherProcess = $this->spawnWatcher($watchSettings->paths, $watchSettings->excludePatterns);
         if (! $watcherProcess) {
             $this->error('Failed to spawn watcher process');
 
@@ -95,7 +122,94 @@ class WatchCommand extends Command
         $this->watcherProcess = $watcherProcess;
         $this->registerShutdownHandlers();
 
-        return $this->runWatchLoop($watcherProcess, $stopWord, $searchWord, $mode, $projectPath, $lockPath);
+        return $this->runWatchLoop(
+            $watcherProcess,
+            $watchSettings->stopWord,
+            $watchSettings->searchWord,
+            $watchSettings->mode,
+            $projectPath,
+            $lockPath
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getCliOverrides(): array
+    {
+        $overrides = [];
+
+        /** @var array<string> $paths */
+        $paths = $this->option('paths');
+        if (! empty($paths)) {
+            $overrides['paths'] = $paths;
+        }
+
+        /** @var string|null $stopWord */
+        $stopWord = $this->option('stop-word');
+        if ($stopWord !== null && $stopWord !== '') {
+            $overrides['stopWord'] = $stopWord;
+        }
+
+        /** @var string|null $searchWord */
+        $searchWord = $this->option('search-word');
+        if ($searchWord !== null && $searchWord !== '') {
+            $overrides['searchWord'] = $searchWord;
+        }
+
+        /** @var string $mode */
+        $mode = $this->option('mode');
+        if ($mode !== 'interactive') {
+            $overrides['mode'] = $mode;
+        }
+
+        /** @var array<string> $exclude */
+        $exclude = $this->option('exclude');
+        if (! empty($exclude)) {
+            $overrides['excludePatterns'] = $exclude;
+        }
+
+        return $overrides;
+    }
+
+    private function promptForWatchWords(WatchSettings $settings, string $projectPath): WatchSettings
+    {
+        $this->newLine();
+        $this->info('Watch words not configured yet. Let\'s set them up.');
+        $this->newLine();
+
+        $searchWord = $settings->searchWord;
+        if ($searchWord === '') {
+            /** @var string $searchWord */
+            $searchWord = $this->ask('Comment marker to search for (e.g. @ai, @claude)', '@ai');
+        }
+
+        $stopWord = $settings->stopWord;
+        if ($stopWord === '') {
+            $defaultStop = ltrim($searchWord, '@').'!';
+            /** @var string $stopWord */
+            $stopWord = $this->ask('Stop word to trigger processing (e.g. ai!, claude!)', $defaultStop);
+        }
+
+        $this->settingsWriter->mergeProject([
+            'watch' => [
+                'searchWord' => $searchWord,
+                'stopWord' => $stopWord,
+            ],
+        ], $projectPath);
+
+        $this->settings->reload();
+
+        $this->line('<fg=green>Saved to .laracode/settings.json</>');
+        $this->newLine();
+
+        return new WatchSettings(
+            paths: $settings->paths,
+            searchWord: $searchWord,
+            stopWord: $stopWord,
+            mode: $settings->mode,
+            excludePatterns: $settings->excludePatterns,
+        );
     }
 
     private function checkChokidarInstalled(): bool
@@ -129,9 +243,6 @@ class WatchCommand extends Command
             $this->error('Chokidar is not installed. Please install it first:');
             $this->newLine();
             $this->line('  <comment>npm install chokidar</comment>');
-            $this->newLine();
-            $this->line('Or globally:');
-            $this->line('  <comment>npm install -g chokidar</comment>');
 
             return false;
         }
@@ -139,143 +250,18 @@ class WatchCommand extends Command
         return true;
     }
 
-    /**
-     * @return array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}
-     */
-    private function loadConfig(): array
-    {
-        /** @var string|null $configPath */
-        $configPath = $this->option('config');
-
-        if ($configPath === null) {
-            $defaultConfig = $this->resolveProjectPath().'/.laracode/watch.json';
-            if (file_exists($defaultConfig)) {
-                $configPath = $defaultConfig;
-            }
-        }
-
-        if ($configPath === null || ! file_exists($configPath)) {
-            return [];
-        }
-
-        $content = file_get_contents($configPath);
-        if ($content === false) {
-            return [];
-        }
-
-        /** @var mixed $decoded */
-        $decoded = json_decode($content, true);
-
-        if (! is_array($decoded)) {
-            return [];
-        }
-
-        /** @var array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>} */
-        return $decoded;
-    }
-
-    /**
-     * @param  array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}  $config
-     * @return array<string>
-     */
-    private function resolvePaths(array $config): array
-    {
-        /** @var array<string> $optionPaths */
-        $optionPaths = $this->option('paths');
-
-        if (! empty($optionPaths)) {
-            return $optionPaths;
-        }
-
-        if (! empty($config['paths'])) {
-            return $config['paths'];
-        }
-
-        return ['app/', 'routes/', 'resources/'];
-    }
-
-    /**
-     * @param  array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}  $config
-     */
-    private function resolveStopWord(array $config): string
-    {
-        /** @var string $optionStopWord */
-        $optionStopWord = $this->option('stop-word');
-
-        if ($optionStopWord !== 'ai!') {
-            return $optionStopWord;
-        }
-
-        return $config['stopWord'] ?? 'ai!';
-    }
-
-    /**
-     * @param  array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}  $config
-     */
-    private function resolveSearchWord(array $config): string
-    {
-        /** @var string $optionSearchWord */
-        $optionSearchWord = $this->option('search-word');
-
-        if ($optionSearchWord !== '@ai') {
-            return $optionSearchWord;
-        }
-
-        return $config['searchWord'] ?? '@ai';
-    }
-
-    /**
-     * @param  array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}  $config
-     */
-    private function resolveMode(array $config): string
-    {
-        /** @var string $optionMode */
-        $optionMode = $this->option('mode');
-
-        if ($optionMode !== 'interactive') {
-            return $optionMode;
-        }
-
-        return $config['mode'] ?? 'interactive';
-    }
-
-    /**
-     * @param  array{paths?: array<string>, stopWord?: string, searchWord?: string, mode?: string, excludePatterns?: array<string>}  $config
-     * @return array<string>
-     */
-    private function resolveExcludePatterns(array $config): array
-    {
-        /** @var array<string> $optionExclude */
-        $optionExclude = $this->option('exclude');
-
-        $patterns = [];
-
-        if (! empty($optionExclude)) {
-            $patterns = array_merge($patterns, $optionExclude);
-        }
-
-        if (! empty($config['excludePatterns'])) {
-            $patterns = array_merge($patterns, $config['excludePatterns']);
-        }
-
-        return array_unique($patterns);
-    }
-
-    /**
-     * @param  array<string>  $paths
-     */
-    private function displayStartup(array $paths, string $stopWord, string $searchWord, string $mode): void
+    private function displayStartup(WatchSettings $settings): void
     {
         $this->newLine();
         $this->info('LaraCode Watch');
         $this->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        $this->line('<comment>Watching:</comment> '.implode(', ', $paths));
-        $this->line('<comment>Search word:</comment> '.$searchWord);
-        $this->line('<comment>Stop word:</comment> '.$stopWord);
-        $this->line('<comment>Mode:</comment> '.$mode);
+        $this->line('<comment>Watching:</comment> '.implode(', ', $settings->paths));
+        $this->line('<comment>Search word:</comment> '.$settings->searchWord);
+        $this->line('<comment>Stop word:</comment> '.$settings->stopWord);
+        $this->line('<comment>Mode:</comment> '.$settings->mode);
         $this->newLine();
         $this->line('Waiting for file changes...');
-        $this->line('<fg=gray>Add '.$searchWord.' comments to your files, then include "'.$stopWord.'" to trigger processing</>');
+        $this->line('<fg=gray>Add '.$settings->searchWord.' comments to your files, then include "'.$settings->stopWord.'" to trigger processing</>');
         $this->newLine();
     }
 
@@ -395,6 +381,7 @@ class WatchCommand extends Command
                     if ($this->shouldTriggerProcessing($stopWord, $searchWord)) {
                         $this->triggerProcessing($searchWord, $mode, $projectPath, $lockPath);
                         $this->changedFiles = [];
+                        $this->pendingCommentFiles = [];
                     }
                 }
             }
@@ -505,12 +492,15 @@ class WatchCommand extends Command
         }
 
         if (! $result['metadata']['stopWordFound']) {
+            $filesWithComments = array_unique(array_column($result['comments'], 'file'));
+            $this->pendingCommentFiles = array_values(array_unique(array_merge($this->pendingCommentFiles, $filesWithComments)));
             $this->line('<fg=yellow>Stop word "'.$stopWord.'" not found. Add it to trigger processing.</>');
 
             return false;
         }
 
-        $this->changedFiles = $filesToScan;
+        $this->changedFiles = array_values(array_unique(array_merge($this->pendingCommentFiles, $filesToScan)));
+        $this->pendingCommentFiles = [];
 
         return true;
     }
@@ -521,7 +511,7 @@ class WatchCommand extends Command
         $this->info('Stop word detected! Processing '.$searchWord.' comments...');
         $this->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-        $result = $this->commentExtractor->scanFiles($this->changedFiles, 'ai!', $searchWord);
+        $result = $this->commentExtractor->scanFiles($this->changedFiles, $this->watchStopWord, $searchWord);
 
         if (empty($result['comments'])) {
             $this->warn('No '.$searchWord.' comments found in changed files');
@@ -536,25 +526,27 @@ class WatchCommand extends Command
         $commentsPath = $projectPath.'/.laracode/comments.json';
         $this->watchService->createCommentsJson($result, $commentsPath);
 
-        $this->line("<comment>Invoking Claude with mode:</comment> {$mode}");
+        $buildMode = BuildMode::tryFrom($mode) ?? BuildMode::Interactive;
+        $this->line("<comment>Invoking agent with mode:</comment> {$mode}");
         $this->newLine();
 
-        $claudeProcess = $this->watchService->invokeClaudeProcess(
-            $commentsPath,
-            $mode,
+        $prompt = "/process-comments {$commentsPath}";
+        $agentProcess = $this->agentRunner->run(
+            $buildMode,
+            $prompt,
             $projectPath,
             $lockPath
         );
 
-        if ($claudeProcess === false) {
-            $this->error('Failed to invoke Claude process');
+        if ($agentProcess === false) {
+            $this->error('Failed to invoke agent process');
 
             return;
         }
 
-        $this->watchService->monitorProcess($claudeProcess, $lockPath, function (int $pid) use ($claudeProcess): void {
-            $this->line('<comment>Lock file removed, terminating Claude...</comment>');
-            $this->watchService->terminateProcess($claudeProcess, $pid);
+        $this->agentRunner->monitor($agentProcess, $lockPath, function (int $pid) use ($agentProcess): void {
+            $this->line('<comment>Lock file removed, terminating agent...</comment>');
+            $this->agentRunner->terminate($agentProcess, $pid);
         });
 
         $this->watchService->cleanupLockFile($lockPath);

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Commands;
 
+use App\Enums\BuildMode;
+use App\Services\AgentRunner;
 use LaravelZero\Framework\Commands\Command;
 
 class BuildCommand extends Command
@@ -12,9 +14,15 @@ class BuildCommand extends Command
         {path : Path to tasks.json file}
         {--iterations=100 : Maximum iterations}
         {--delay=3 : Delay between tasks in seconds}
-        {--mode=yolo : Permission mode: yolo (auto-approve), accept (interactive), default}';
+        {--mode=yolo : Permission mode: yolo, accept, interactive, plan}';
 
     protected $description = 'Run autonomous build loop from tasks.json';
+
+    public function __construct(
+        private AgentRunner $agentRunner
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -22,11 +30,13 @@ class BuildCommand extends Command
         $tasksPath = $this->argument('path');
         $maxIterations = (int) $this->option('iterations');
         $delay = (int) $this->option('delay');
-        /** @var string $mode */
-        $mode = $this->option('mode');
+        /** @var string $modeStr */
+        $modeStr = $this->option('mode');
 
-        if (! in_array($mode, ['yolo', 'accept', 'default'], true)) {
-            $this->error("Invalid mode: {$mode}. Valid modes: yolo, accept, default");
+        $mode = BuildMode::tryFrom($modeStr);
+        if ($mode === null) {
+            $validModes = implode(', ', array_column(BuildMode::cases(), 'value'));
+            $this->error("Invalid mode: {$modeStr}. Valid modes: {$validModes}");
 
             return self::FAILURE;
         }
@@ -83,7 +93,7 @@ class BuildCommand extends Command
         $iteration = 0;
 
         while ($iteration < $maxIterations) {
-            // Reload tasks on each iteration (Claude may have updated them)
+            // Reload tasks on each iteration (agent may have updated them)
             $content = file_get_contents($tasksPath);
             if ($content === false) {
                 continue;
@@ -111,7 +121,7 @@ class BuildCommand extends Command
             $taskLabel = $nextTask['title'] ?? $nextTask['description'] ?? 'Untitled';
             $this->line("<comment>Next Task:</comment> #{$nextTask['id']} - {$taskLabel}");
 
-            $this->runClaude($projectPath, $mode, $tasksPath, $lockPath, $nextTask);
+            $this->runAgent($projectPath, $mode, $tasksPath, $lockPath, $nextTask);
 
             // Read completion signal and update stats
             $completedPath = dirname($realTasksPath ?: $tasksPath).'/completed.json';
@@ -159,95 +169,43 @@ class BuildCommand extends Command
     /**
      * @param  array{id: int, status: string, description?: string, title?: string}  $currentTask
      */
-    private function runClaude(string $projectPath, string $mode, string $tasksPath, string $lockPath, array $currentTask): void
+    private function runAgent(string $projectPath, BuildMode $mode, string $tasksPath, string $lockPath, array $currentTask): void
     {
-        $command = ['claude'];
+        $this->line("<comment>Mode:</comment> {$mode->description()}");
 
-        if ($mode === 'yolo') {
-            $this->line('<comment>Mode:</comment> yolo (auto-approve all)');
-            $command[] = '--dangerously-skip-permissions';
-        } elseif ($mode === 'accept') {
-            $this->line('<comment>Mode:</comment> accept (acceptEdits)');
-            $command = array_merge($command, ['--permission-mode', 'acceptEdits']);
-        } else {
-            $this->line('<comment>Mode:</comment> default');
-        }
-
-        $command[] = "'/build-next $tasksPath'";
-        $this->line('Running: '.implode(' ', $command));
-
+        $prompt = "/build-next $tasksPath";
+        $this->line("Running agent with prompt: {$prompt}");
         $this->newLine();
 
-        $descriptorspec = [
-            0 => STDIN,
-            1 => STDOUT,
-            2 => STDERR,
-        ];
-
-        $env = array_merge($_ENV, getenv(), ['LARACODE_LOCK_FILE' => $lockPath]);
-
-        $process = proc_open(
-            implode(' ', $command),
-            $descriptorspec,
-            $pipes,
+        $process = $this->agentRunner->run(
+            $mode,
+            $prompt,
             $projectPath,
-            $env
+            $lockPath,
+            null,
+            [
+                'tasksPath' => $tasksPath,
+                'currentTask' => [
+                    'id' => $currentTask['id'],
+                    'title' => $currentTask['title'] ?? $currentTask['description'] ?? 'Untitled',
+                ],
+            ]
         );
 
-        if (! is_resource($process)) {
+        if ($process === false) {
+            $this->error('Failed to spawn agent process');
+
             return;
         }
 
-        // Get PID and write lock file with task info
-        $status = proc_get_status($process);
-        $pid = $status['pid'];
-        $lockData = [
-            'pid' => $pid,
-            'started' => date('c'),
-            'tasksPath' => $tasksPath,
-            'currentTask' => [
-                'id' => $currentTask['id'],
-                'title' => $currentTask['title'] ?? $currentTask['description'] ?? 'Untitled',
-            ],
-        ];
-        file_put_contents($lockPath, json_encode($lockData, JSON_PRETTY_PRINT));
+        $this->agentRunner->monitor($process, $lockPath, function (int $pid) use ($process): void {
+            $this->newLine();
+            $this->line('<comment>Lock file removed, terminating agent...</comment>');
+            $this->agentRunner->terminate($process, $pid);
+        });
 
-        // Monitor for lock file deletion OR process exit
-        while (true) {
-            $status = proc_get_status($process);
-
-            if (! $status['running']) {
-                break;
-            }
-
-            // Check if lock file was deleted (by StopCommand)
-            if (! file_exists($lockPath)) {
-                $this->newLine();
-                $this->line('<comment>Lock file removed, terminating Claude...</comment>');
-
-                // Send SIGTERM to Claude
-                posix_kill($pid, SIGTERM);
-
-                // Wait for graceful shutdown
-                usleep(500000);
-
-                // Force kill if still running
-                $status = proc_get_status($process);
-                if ($status['running']) {
-                    posix_kill($pid, SIGKILL);
-                }
-
-                break;
-            }
-
-            usleep(100000); // 100ms
-        }
-
-        proc_close($process);
-        $this->restoreTerminal();
-
-        // Clean up lock file if it still exists
         @unlink($lockPath);
+        $this->restoreTerminal();
     }
 
     private function restoreTerminal(): void

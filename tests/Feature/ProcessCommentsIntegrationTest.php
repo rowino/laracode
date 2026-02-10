@@ -579,13 +579,15 @@ describe('lock file management', function () {
 
 describe('watch config integration', function () {
     it('creates valid watch config during init', function () {
-        $configPath = $this->testPath.'/.laracode/watch.json';
+        $configPath = $this->testPath.'/.laracode/settings.json';
 
         $config = [
-            'paths' => ['app/', 'routes/', 'resources/'],
-            'stopWord' => 'claude!',
-            'mode' => 'interactive',
-            'excludePatterns' => ['*/vendor/*', '*/node_modules/*', '*/storage/*'],
+            'watch' => [
+                'paths' => ['app/', 'routes/', 'resources/'],
+                'stopWord' => 'claude!',
+                'mode' => 'interactive',
+                'excludePatterns' => ['*/vendor/*', '*/node_modules/*', '*/storage/*'],
+            ],
         ];
 
         file_put_contents($configPath, json_encode($config, JSON_PRETTY_PRINT));
@@ -593,9 +595,9 @@ describe('watch config integration', function () {
         expect(file_exists($configPath))->toBeTrue();
 
         $loaded = json_decode(file_get_contents($configPath), true);
-        expect($loaded['paths'])->toBe(['app/', 'routes/', 'resources/'])
-            ->and($loaded['stopWord'])->toBe('claude!')
-            ->and($loaded['mode'])->toBe('interactive')
-            ->and($loaded['excludePatterns'])->toContain('*/vendor/*');
+        expect($loaded['watch']['paths'])->toBe(['app/', 'routes/', 'resources/'])
+            ->and($loaded['watch']['stopWord'])->toBe('claude!')
+            ->and($loaded['watch']['mode'])->toBe('interactive')
+            ->and($loaded['watch']['excludePatterns'])->toContain('*/vendor/*');
     });
 });

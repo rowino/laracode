@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\BuildMode;
+
 /**
- * Usage: Coordinates file watching, comment processing, and Claude process spawning.
+ * Usage: Coordinates file watching, comment processing, and orchestration logic.
  */
 class WatchService
 {
@@ -32,55 +34,6 @@ class WatchService
         if (file_put_contents($outputPath, $json) === false) {
             throw new \RuntimeException("Failed to write comments file: {$outputPath}");
         }
-    }
-
-    /**
-     * @return resource|false
-     */
-    public function invokeClaudeProcess(string $commentsPath, string $mode, string $projectPath, string $lockPath): mixed
-    {
-        $command = ['claude'];
-
-        if ($mode === 'yolo') {
-            $command[] = '--dangerously-skip-permissions';
-        } elseif ($mode === 'accept') {
-            $command[] = '--permission-mode';
-            $command[] = 'acceptEdits';
-        }
-
-        $command[] = '/process-comments';
-        $command[] = $commentsPath;
-
-        $descriptorspec = [
-            0 => STDIN,
-            1 => STDOUT,
-            2 => STDERR,
-        ];
-
-        $env = array_merge($_ENV, getenv(), ['LARACODE_LOCK_FILE' => $lockPath]);
-
-        $process = proc_open(
-            $command,
-            $descriptorspec,
-            $pipes,
-            $projectPath,
-            $env
-        );
-
-        if (! is_resource($process)) {
-            return false;
-        }
-
-        $status = proc_get_status($process);
-        $pid = $status['pid'];
-        file_put_contents($lockPath, json_encode([
-            'pid' => $pid,
-            'started' => date('c'),
-            'mode' => $mode,
-            'commentsPath' => $commentsPath,
-        ], JSON_PRETTY_PRINT));
-
-        return $process;
     }
 
     /**
@@ -163,7 +116,7 @@ class WatchService
     }
 
     /**
-     * @return array{pid: int, started: string, mode?: string, commentsPath?: string}|null
+     * @return array{pid: int, started: string, mode?: string}|null
      */
     public function readLockFile(string $lockPath): ?array
     {
@@ -184,18 +137,9 @@ class WatchService
         return $data;
     }
 
-    /**
-     * @param  array<string>  $paths
-     */
-    public function buildClaudePrompt(array $paths, string $mode): string
+    public function buildClaudePrompt(BuildMode $mode): string
     {
-        $modeDescription = match ($mode) {
-            'yolo' => 'Execute all changes without prompting for approval',
-            'accept' => 'Accept all edits but prompt for other permissions',
-            default => 'Interactive mode - prompt for all permissions',
-        };
-
-        return "Process @claude comments from changed files.\nMode: {$modeDescription}";
+        return "Process @claude comments from changed files.\nMode: {$mode->description()}";
     }
 
     /**

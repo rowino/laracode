@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\BuildMode;
 use App\Services\WatchService;
 
 function deleteDirectoryRecursively(string $dir): void
@@ -164,79 +165,6 @@ describe('createCommentsJson', function () {
     });
 });
 
-describe('invokeClaudeProcess', function () {
-    it('builds correct command for interactive mode', function () {
-        // We can't easily test proc_open directly, but we can verify the method doesn't crash
-        // with invalid paths - it should return false for process creation failures
-        // Suppress proc_open warnings when command doesn't exist
-        set_error_handler(fn () => true);
-        $result = $this->service->invokeClaudeProcess(
-            '/nonexistent/comments.json',
-            'interactive',
-            '/nonexistent/project',
-            $this->tempDir.'/test.lock'
-        );
-        restore_error_handler();
-
-        // The process likely fails to spawn (claude command not found), but we test the method runs
-        // In a real test environment with claude installed, this would create a process
-        expect($result === false || is_resource($result))->toBeTrue();
-    });
-
-    it('builds correct command for yolo mode', function () {
-        set_error_handler(fn () => true);
-        $result = $this->service->invokeClaudeProcess(
-            '/nonexistent/comments.json',
-            'yolo',
-            '/nonexistent/project',
-            $this->tempDir.'/yolo.lock'
-        );
-        restore_error_handler();
-
-        expect($result === false || is_resource($result))->toBeTrue();
-    });
-
-    it('builds correct command for accept mode', function () {
-        set_error_handler(fn () => true);
-        $result = $this->service->invokeClaudeProcess(
-            '/nonexistent/comments.json',
-            'accept',
-            '/nonexistent/project',
-            $this->tempDir.'/accept.lock'
-        );
-        restore_error_handler();
-
-        expect($result === false || is_resource($result))->toBeTrue();
-    });
-
-    it('creates lock file with process info when process starts', function () {
-        // Skip this test if claude is not installed (process would fail to spawn)
-        $lockPath = $this->tempDir.'/spawn.lock';
-        $result = $this->service->invokeClaudeProcess(
-            '/test/comments.json',
-            'interactive',
-            $this->tempDir,
-            $lockPath
-        );
-
-        // If process started, lock file should exist
-        if (is_resource($result)) {
-            expect(file_exists($lockPath))->toBeTrue();
-
-            $lockData = json_decode(file_get_contents($lockPath), true);
-            expect($lockData)->toHaveKey('pid')
-                ->and($lockData)->toHaveKey('started')
-                ->and($lockData)->toHaveKey('mode')
-                ->and($lockData)->toHaveKey('commentsPath')
-                ->and($lockData['mode'])->toBe('interactive')
-                ->and($lockData['commentsPath'])->toBe('/test/comments.json');
-
-            proc_terminate($result);
-            proc_close($result);
-        }
-    })->skip(fn () => shell_exec('which claude') === null, 'Claude CLI not installed');
-});
-
 describe('waitForNotification', function () {
     it('reads notification file and returns parsed content', function () {
         $notificationFile = $this->tempDir.'/notification.json';
@@ -311,83 +239,6 @@ describe('waitForNotification', function () {
     });
 });
 
-describe('monitorProcess', function () {
-    it('exits when process stops running', function () {
-        // Create a simple short-lived process
-        $descriptorspec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = proc_open('sleep 0.1', $descriptorspec, $pipes);
-        $lockPath = $this->tempDir.'/monitor.lock';
-        file_put_contents($lockPath, json_encode(['pid' => 1]));
-
-        $callbackCalled = false;
-        $this->service->monitorProcess($process, $lockPath, function ($pid) use (&$callbackCalled) {
-            $callbackCalled = true;
-        });
-
-        proc_close($process);
-
-        // Callback should NOT be called because process ended (not lock removal)
-        expect($callbackCalled)->toBeFalse();
-    });
-
-    it('calls callback when lock file is removed', function () {
-        $descriptorspec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        // Long-running process
-        $process = proc_open('sleep 10', $descriptorspec, $pipes);
-        $lockPath = $this->tempDir.'/monitor-lock.lock';
-        file_put_contents($lockPath, json_encode(['pid' => getmypid()]));
-
-        $callbackPid = null;
-
-        // Fork to remove lock file after delay
-        $pid = pcntl_fork();
-        if ($pid === 0) {
-            usleep(150000); // 150ms
-            unlink($lockPath);
-            exit(0);
-        }
-
-        $this->service->monitorProcess($process, $lockPath, function ($pid) use (&$callbackPid) {
-            $callbackPid = $pid;
-        });
-
-        pcntl_waitpid($pid, $status);
-        proc_terminate($process);
-        proc_close($process);
-
-        expect($callbackPid)->not->toBeNull();
-    });
-});
-
-describe('terminateProcess', function () {
-    it('sends SIGTERM and closes process', function () {
-        $descriptorspec = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = proc_open('sleep 60', $descriptorspec, $pipes);
-        $status = proc_get_status($process);
-        $pid = $status['pid'];
-
-        $this->service->terminateProcess($process, $pid);
-
-        // Process should be closed
-        expect(is_resource($process))->toBeFalse();
-    });
-});
-
 describe('cleanupLockFile', function () {
     it('removes existing lock file', function () {
         $lockPath = $this->tempDir.'/cleanup.lock';
@@ -403,9 +254,6 @@ describe('cleanupLockFile', function () {
     it('does not throw when lock file does not exist', function () {
         $lockPath = $this->tempDir.'/nonexistent.lock';
 
-        // The @ suppression in cleanupLockFile means this should not emit errors
-        // But PHP may still emit warnings depending on error_reporting level
-        // Suppress any potential warnings for a clean test
         set_error_handler(fn () => true);
         $this->service->cleanupLockFile($lockPath);
         restore_error_handler();
@@ -421,7 +269,6 @@ describe('readLockFile', function () {
             'pid' => 12345,
             'started' => '2026-01-21T10:00:00+00:00',
             'mode' => 'yolo',
-            'commentsPath' => '/path/to/comments.json',
         ];
         file_put_contents($lockPath, json_encode($lockData));
 
@@ -430,8 +277,7 @@ describe('readLockFile', function () {
         expect($result)->not->toBeNull()
             ->and($result['pid'])->toBe(12345)
             ->and($result['started'])->toBe('2026-01-21T10:00:00+00:00')
-            ->and($result['mode'])->toBe('yolo')
-            ->and($result['commentsPath'])->toBe('/path/to/comments.json');
+            ->and($result['mode'])->toBe('yolo');
     });
 
     it('returns null for missing lock file', function () {
@@ -475,31 +321,25 @@ describe('readLockFile', function () {
 
 describe('buildClaudePrompt', function () {
     it('generates yolo mode prompt', function () {
-        $prompt = $this->service->buildClaudePrompt(['app/', 'routes/'], 'yolo');
+        $prompt = $this->service->buildClaudePrompt(BuildMode::Yolo);
 
-        expect($prompt)->toContain('Execute all changes without prompting');
+        expect($prompt)->toContain('Yolo - Executes without confirmation');
     });
 
     it('generates accept mode prompt', function () {
-        $prompt = $this->service->buildClaudePrompt(['app/'], 'accept');
+        $prompt = $this->service->buildClaudePrompt(BuildMode::Accept);
 
-        expect($prompt)->toContain('Accept all edits but prompt for other permissions');
+        expect($prompt)->toContain('Accept - Auto-accepts all prompts');
     });
 
     it('generates interactive mode prompt', function () {
-        $prompt = $this->service->buildClaudePrompt(['app/'], 'interactive');
+        $prompt = $this->service->buildClaudePrompt(BuildMode::Interactive);
 
-        expect($prompt)->toContain('Interactive mode');
-    });
-
-    it('generates interactive mode prompt for unknown modes', function () {
-        $prompt = $this->service->buildClaudePrompt(['app/'], 'unknown_mode');
-
-        expect($prompt)->toContain('Interactive mode');
+        expect($prompt)->toContain('Interactive - Asks before making changes');
     });
 
     it('includes process comments instruction', function () {
-        $prompt = $this->service->buildClaudePrompt(['app/'], 'interactive');
+        $prompt = $this->service->buildClaudePrompt(BuildMode::Interactive);
 
         expect($prompt)->toContain('Process @claude comments');
     });

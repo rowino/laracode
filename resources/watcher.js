@@ -9,6 +9,43 @@
 
 const chokidar = require('chokidar');
 const path = require('path');
+const fs = require('fs');
+
+const FALLBACK_PATHS = ['app/', 'routes/', 'resources/'];
+const FALLBACK_IGNORED = [
+    '**/vendor/**',
+    '**/node_modules/**',
+    '**/storage/**',
+    '**/.git/**',
+    '**/.idea/**',
+    '**/.vscode/**',
+    '**/bootstrap/cache/**',
+    '**/*.log',
+    '**/.DS_Store',
+];
+
+function loadConfig() {
+    const candidates = [
+        path.resolve('.laracode/settings.local.json'),
+        path.resolve('.laracode/settings.json'),
+    ];
+
+    for (const file of candidates) {
+        try {
+            const raw = fs.readFileSync(file, 'utf8');
+            const json = JSON.parse(raw);
+            if (json && typeof json === 'object' && json.watch) {
+                return json.watch;
+            }
+        } catch {
+            // file missing or invalid JSON — try next
+        }
+    }
+
+    return {};
+}
+
+const config = loadConfig();
 
 // Parse CLI arguments
 const args = process.argv.slice(2);
@@ -23,25 +60,18 @@ for (const arg of args) {
     }
 }
 
-// Default paths if none provided
+// Use CLI paths, then config paths, then fallback
 if (pathsToWatch.length === 0) {
-    pathsToWatch = ['app/', 'routes/', 'resources/'];
+    pathsToWatch = Array.isArray(config.paths) && config.paths.length > 0
+        ? config.paths
+        : FALLBACK_PATHS;
 }
 
-// Default ignore patterns
-const defaultIgnored = [
-    '**/vendor/**',
-    '**/node_modules/**',
-    '**/storage/**',
-    '**/.git/**',
-    '**/.idea/**',
-    '**/.vscode/**',
-    '**/bootstrap/cache/**',
-    '**/*.log',
-    '**/.DS_Store',
-];
+// Merge config exclude patterns with fallback, then CLI overrides
+const defaultIgnored = Array.isArray(config.excludePatterns) && config.excludePatterns.length > 0
+    ? config.excludePatterns
+    : FALLBACK_IGNORED;
 
-// Merge custom exclude patterns
 const ignored = [...defaultIgnored, ...excludePatterns];
 
 /**
