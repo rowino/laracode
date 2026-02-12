@@ -2,8 +2,19 @@
 
 declare(strict_types=1);
 
+use App\Commands\BuildCommand;
+use App\Services\AgentRunner;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Process;
+
+function mockAgentRunner(): void
+{
+    $mock = Mockery::mock(AgentRunner::class);
+    $mock->shouldReceive('run')->andReturn(false);
+
+    $kernel = app(Illuminate\Contracts\Console\Kernel::class);
+    $command = (new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel)->find('build');
+    (new ReflectionProperty(BuildCommand::class, 'agentRunner'))->setValue($command, $mock);
+}
 
 beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-build-test-'.uniqid();
@@ -83,9 +94,7 @@ it('respects max iterations option', function () {
         ],
     ]));
 
-    Process::fake([
-        '*' => Process::result(output: 'Task completed'),
-    ]);
+    mockAgentRunner();
 
     $this->artisan('build', [
         'path' => $tasksPath,
@@ -276,16 +285,14 @@ it('creates lock file with PID when running claude subprocess', function () {
         ],
     ]));
 
-    // Run with 1 iteration - the subprocess will fail (no claude CLI in test env)
-    // but the lock file should be created before subprocess execution
+    mockAgentRunner();
+
     $this->artisan('build', [
         'path' => $tasksPath,
         '--iterations' => 1,
         '--delay' => 0,
     ]);
 
-    // After completion, lock file should be cleaned up
-    // We verify that the lock path is correct by checking the directory
     expect($lockPath)->toEqual($this->testPath.'/.laracode/specs/test-feature/index.lock');
 });
 
@@ -299,14 +306,14 @@ it('cleans up lock file after process completion', function () {
         ],
     ]));
 
-    // Run build command with 1 iteration
+    mockAgentRunner();
+
     $this->artisan('build', [
         'path' => $tasksPath,
         '--iterations' => 1,
         '--delay' => 0,
     ]);
 
-    // After command completes, lock file should not exist
     expect(file_exists($lockPath))->toBeFalse();
 });
 
