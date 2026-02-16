@@ -47,7 +47,7 @@ class AgentRunner
             $descriptorspec,
             $pipes,
             $projectPath,
-            null
+            $this->buildEnvironment($lockPath)
         );
 
         if (! is_resource($process)) {
@@ -57,6 +57,23 @@ class AgentRunner
         $this->writeLockFile($lockPath, $process, $mode, $lockMetadata);
 
         return $process;
+    }
+
+    /**
+     * Build environment array for spawned agent process.
+     * Inherits parent environment (PATH, HOME, etc) and adds LARACODE_LOCK_FILE.
+     *
+     * @return array<string, string>
+     */
+    private function buildEnvironment(string $lockPath): array
+    {
+        /** @var array<string, string>|false $parentEnv */
+        $parentEnv = getenv();
+        $env = is_array($parentEnv) ? $parentEnv : [];
+
+        $env['LARACODE_LOCK_FILE'] = $lockPath;
+
+        return $env;
     }
 
     /**

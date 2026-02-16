@@ -22,7 +22,7 @@ class WatchCommand extends Command
         {--paths=* : Paths to watch (default: app/, routes/, resources/)}
         {--stop-word= : Stop word to trigger processing}
         {--search-word= : Comment marker to search for}
-        {--mode=interactive : Permission mode: yolo, accept, interactive}
+        {--mode= : Permission mode: yolo, accept, interactive (default from settings)}
         {--exclude=* : Additional patterns to exclude}';
 
     protected $description = 'Watch files for @claude comments and process them when stop word is detected';
@@ -157,9 +157,9 @@ class WatchCommand extends Command
             $overrides['searchWord'] = $searchWord;
         }
 
-        /** @var string $mode */
+        /** @var string|null $mode */
         $mode = $this->option('mode');
-        if ($mode !== 'interactive') {
+        if ($mode !== null && $mode !== '') {
             $overrides['mode'] = $mode;
         }
 

@@ -6,6 +6,7 @@ namespace App\Commands;
 
 use App\Enums\BuildMode;
 use App\Services\AgentRunner;
+use App\Services\Settings\SettingsService;
 use LaravelZero\Framework\Commands\Command;
 
 class BuildCommand extends Command
@@ -14,12 +15,13 @@ class BuildCommand extends Command
         {path : Path to tasks.json file}
         {--iterations=100 : Maximum iterations}
         {--delay=3 : Delay between tasks in seconds}
-        {--mode=yolo : Permission mode: yolo, accept, interactive, plan}';
+        {--mode= : Permission mode: yolo, accept, interactive, plan (defaults to settings)}';
 
     protected $description = 'Run autonomous build loop from tasks.json';
 
     public function __construct(
-        private AgentRunner $agentRunner
+        private AgentRunner $agentRunner,
+        private SettingsService $settingsService
     ) {
         parent::__construct();
     }
@@ -30,20 +32,32 @@ class BuildCommand extends Command
         $tasksPath = $this->argument('path');
         $maxIterations = (int) $this->option('iterations');
         $delay = (int) $this->option('delay');
-        /** @var string $modeStr */
-        $modeStr = $this->option('mode');
+
+        // Validate tasks file exists first to get project path
+        if (! file_exists($tasksPath)) {
+            $this->error("Tasks file not found: {$tasksPath}");
+
+            return self::FAILURE;
+        }
+
+        // Determine project path early for settings resolution
+        $realTasksPath = realpath($tasksPath);
+        $projectPath = $realTasksPath ? dirname($realTasksPath) : dirname($tasksPath);
+        // Try to find project root by looking for .claude or .laracode directory
+        while ($projectPath !== '/' && ! is_dir($projectPath.'/.claude') && ! is_dir($projectPath.'/.laracode')) {
+            $projectPath = dirname($projectPath);
+        }
+
+        if ($projectPath === '/') {
+            $projectPath = $realTasksPath ? dirname($realTasksPath, 3) : dirname($tasksPath, 3);
+        }
+
+        $modeStr = $this->resolveModeOption($projectPath);
 
         $mode = BuildMode::tryFrom($modeStr);
         if ($mode === null) {
             $validModes = implode(', ', array_column(BuildMode::cases(), 'value'));
             $this->error("Invalid mode: {$modeStr}. Valid modes: {$validModes}");
-
-            return self::FAILURE;
-        }
-
-        // Validate tasks file exists
-        if (! file_exists($tasksPath)) {
-            $this->error("Tasks file not found: {$tasksPath}");
 
             return self::FAILURE;
         }
@@ -68,18 +82,6 @@ class BuildCommand extends Command
             $this->error("Tasks file must contain a 'tasks' array");
 
             return self::FAILURE;
-        }
-
-        // Determine project path (go up from .laracode/specs/feature/tasks.json)
-        $realTasksPath = realpath($tasksPath);
-        $projectPath = $realTasksPath ? dirname($realTasksPath) : dirname($tasksPath);
-        // Try to find project root by looking for .claude or .laracode directory
-        while ($projectPath !== '/' && ! is_dir($projectPath.'/.claude') && ! is_dir($projectPath.'/.laracode')) {
-            $projectPath = dirname($projectPath);
-        }
-
-        if ($projectPath === '/') {
-            $projectPath = $realTasksPath ? dirname($realTasksPath, 3) : dirname($tasksPath, 3);
         }
 
         // Compute lock path next to tasks.json
@@ -164,6 +166,29 @@ class BuildCommand extends Command
         $this->displayStats($tasks);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolves the mode option with precedence: CLI flag > settings > fallback.
+     * Reads defaultMode from SettingsService when --mode flag is not explicitly provided.
+     * Falls back to 'interactive' if no settings found.
+     */
+    private function resolveModeOption(string $projectPath): string
+    {
+        /** @var string|null $cliMode */
+        $cliMode = $this->option('mode');
+
+        // CLI flag takes precedence
+        if ($cliMode !== null && $cliMode !== '') {
+            return $cliMode;
+        }
+
+        // Read from settings
+        $this->settingsService->setProjectPath($projectPath);
+        /** @var string|null $defaultMode */
+        $defaultMode = $this->settingsService->get('defaultMode');
+
+        return $defaultMode ?? 'interactive';
     }
 
     /**

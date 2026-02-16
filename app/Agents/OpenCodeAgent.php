@@ -69,6 +69,10 @@ class OpenCodeAgent implements AgentInterface
      */
     public function getSettings(string $scope): array
     {
+        if ($scope === 'project') {
+            $this->migrateLegacySettings();
+        }
+
         $path = $this->getSettingsPath($scope);
         if ($path === '' || ! file_exists($path)) {
             return [];
@@ -89,6 +93,10 @@ class OpenCodeAgent implements AgentInterface
      */
     public function updateSettings(string $scope, array $settings): void
     {
+        if ($scope === 'project') {
+            $this->migrateLegacySettings();
+        }
+
         $path = $this->getSettingsPath($scope);
         if ($path === '') {
             return;
@@ -110,6 +118,34 @@ class OpenCodeAgent implements AgentInterface
         return in_array(self::CONFIG_FOLDER, $folders, true);
     }
 
+    /**
+     * Migrates legacy settings from ./opencode.json to ./.opencode/opencode.json
+     *
+     * This method handles backward compatibility by copying settings from the legacy
+     * root-level location to the new directory-based location. The legacy file is
+     * kept after migration for safety. Migration only occurs if the legacy file exists
+     * and the new location does not already exist.
+     */
+    private function migrateLegacySettings(): void
+    {
+        $cwd = getcwd();
+        $basePath = $cwd !== false ? $cwd : '.';
+
+        $legacyPath = $basePath.'/'.self::SETTINGS_FILE;
+        $newPath = $basePath.'/'.self::CONFIG_FOLDER.'/'.self::SETTINGS_FILE;
+
+        if (! file_exists($legacyPath) || file_exists($newPath)) {
+            return;
+        }
+
+        $this->ensureDirectory(dirname($newPath));
+
+        $content = file_get_contents($legacyPath);
+        if ($content !== false) {
+            file_put_contents($newPath, $content);
+        }
+    }
+
     private function getSettingsPath(string $scope): string
     {
         if ($scope === 'user') {
@@ -124,7 +160,7 @@ class OpenCodeAgent implements AgentInterface
         $cwd = getcwd();
         $basePath = $cwd !== false ? $cwd : '.';
 
-        return $basePath.'/'.self::SETTINGS_FILE;
+        return $basePath.'/'.self::CONFIG_FOLDER.'/'.self::SETTINGS_FILE;
     }
 
     private function copyToFolder(string $file, string $targetFolder): void
