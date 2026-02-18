@@ -1,0 +1,23 @@
+{
+    "watch": {
+        "paths": [
+            "app/",
+            "routes/",
+            "resources/"
+        ],
+        "searchWord": "@claude",
+        "stopWord": "claude!",
+        "mode": "interactive",
+        "excludePatterns": [
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/storage/**",
+            "**/.git/**",
+            "**/.idea/**",
+            "**/.vscode/**",
+            "**/bootstrap/cache/**",
+            "**/*.log",
+            "**/.DS_Store"
+        ]
+    }
+}

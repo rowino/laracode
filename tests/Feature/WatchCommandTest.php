@@ -2,9 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Enums\BuildMode;
 use App\Services\CommentExtractor;
 use App\Services\WatchService;
 use Illuminate\Support\Facades\File;
+
+function createWatchService(): WatchService
+{
+    return new WatchService;
+}
 
 beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-watch-test-'.uniqid();
@@ -56,13 +62,15 @@ it('displays install instructions when chokidar is missing', function () {
     }
 });
 
-it('loads config from default watch.json location', function () {
-    // Create watch config
-    $configPath = $this->testPath.'/.laracode/watch.json';
+it('loads config from settings.json', function () {
+    $configPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($configPath, json_encode([
-        'paths' => ['custom/'],
-        'stopWord' => 'customstop!',
-        'mode' => 'yolo',
+        'watch' => [
+            'paths' => ['custom/'],
+            'searchWord' => '@custom',
+            'stopWord' => 'customstop!',
+            'mode' => 'yolo',
+        ],
     ]));
 
     // Create mock npm that reports chokidar as missing (to fail early for test)
@@ -82,12 +90,16 @@ it('loads config from default watch.json location', function () {
     }
 });
 
-it('loads config from explicit config path', function () {
-    $configPath = $this->testPath.'/custom-config.json';
-    file_put_contents($configPath, json_encode([
-        'paths' => ['src/'],
-        'stopWord' => 'go!',
-        'mode' => 'accept',
+it('loads config from local settings override', function () {
+    // Create local settings override (takes precedence over project settings)
+    $localPath = $this->testPath.'/.laracode/settings.local.json';
+    file_put_contents($localPath, json_encode([
+        'watch' => [
+            'paths' => ['src/'],
+            'searchWord' => '@go',
+            'stopWord' => 'go!',
+            'mode' => 'accept',
+        ],
     ]));
 
     $npmScript = $this->testPath.'/npm';
@@ -98,7 +110,7 @@ it('loads config from explicit config path', function () {
     putenv("PATH={$this->testPath}:{$originalPath}");
 
     try {
-        $this->artisan('watch', ['--config' => $configPath])
+        $this->artisan('watch')
             ->assertFailed();
     } finally {
         putenv("PATH={$originalPath}");
@@ -124,12 +136,14 @@ it('uses default paths when no config or options provided', function () {
 });
 
 it('prefers CLI options over config file settings', function () {
-    $configPath = $this->testPath.'/.laracode/watch.json';
+    $configPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($configPath, json_encode([
-        'paths' => ['config-path/'],
-        'stopWord' => 'configstop!',
-        'searchWord' => '@configclaude',
-        'mode' => 'yolo',
+        'watch' => [
+            'paths' => ['config-path/'],
+            'stopWord' => 'configstop!',
+            'searchWord' => '@config-test-agent',
+            'mode' => 'yolo',
+        ],
     ]));
 
     $npmScript = $this->testPath.'/npm';
@@ -144,7 +158,7 @@ it('prefers CLI options over config file settings', function () {
         $this->artisan('watch', [
             '--paths' => ['cli-path/'],
             '--stop-word' => 'clistop!',
-            '--search-word' => '@cliclaude',
+            '--search-word' => '@cli-test-agent',
             '--mode' => 'interactive',
         ])
             ->assertFailed();
@@ -154,10 +168,12 @@ it('prefers CLI options over config file settings', function () {
 });
 
 it('loads searchWord from config file', function () {
-    $configPath = $this->testPath.'/.laracode/watch.json';
+    $configPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($configPath, json_encode([
-        'searchWord' => '@todo',
-        'stopWord' => 'done!',
+        'watch' => [
+            'searchWord' => '@todo',
+            'stopWord' => 'done!',
+        ],
     ]));
 
     $npmScript = $this->testPath.'/npm';
@@ -177,7 +193,7 @@ it('loads searchWord from config file', function () {
 });
 
 it('handles invalid config file gracefully', function () {
-    $configPath = $this->testPath.'/.laracode/watch.json';
+    $configPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($configPath, 'invalid json {{{');
 
     $npmScript = $this->testPath.'/npm';
@@ -196,7 +212,11 @@ it('handles invalid config file gracefully', function () {
     }
 });
 
-it('handles missing config file gracefully', function () {
+it('handles missing settings file gracefully', function () {
+    // Remove any existing settings files
+    @unlink($this->testPath.'/.laracode/settings.json');
+    @unlink($this->testPath.'/.laracode/settings.local.json');
+
     $npmScript = $this->testPath.'/npm';
     file_put_contents($npmScript, "#!/bin/bash\necho '(empty)'\nexit 0");
     chmod($npmScript, 0755);
@@ -205,18 +225,21 @@ it('handles missing config file gracefully', function () {
     putenv("PATH={$this->testPath}:{$originalPath}");
 
     try {
-        // Should use defaults when config doesn't exist
-        $this->artisan('watch', ['--config' => '/nonexistent/config.json'])
-            ->assertFailed();
+        // Should use defaults when no settings files exist
+        $this->artisan('watch')
+            ->assertFailed()
+            ->expectsOutputToContain('Chokidar is not installed');
     } finally {
         putenv("PATH={$originalPath}");
     }
 });
 
 it('merges exclude patterns from config and CLI', function () {
-    $configPath = $this->testPath.'/.laracode/watch.json';
+    $configPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($configPath, json_encode([
-        'excludePatterns' => ['config-pattern/*'],
+        'watch' => [
+            'excludePatterns' => ['config-pattern/*'],
+        ],
     ]));
 
     $npmScript = $this->testPath.'/npm';
@@ -236,24 +259,24 @@ it('merges exclude patterns from config and CLI', function () {
 });
 
 describe('CommentExtractor integration', function () {
-    it('extracts @claude comments from PHP files', function () {
+    it('extracts @test-agent comments from PHP files', function () {
         $extractor = new CommentExtractor;
 
         $phpFile = $this->testPath.'/app/TestClass.php';
         file_put_contents($phpFile, <<<'PHP'
 <?php
-// @claude Add validation here
+// @test-agent Add validation here
 class TestClass {
-    /* @claude Implement method claude! */
+    /* @test-agent Implement method test-agent! */
     public function test() {}
 }
 PHP);
 
-        $result = $extractor->scanFiles([$phpFile], 'claude!');
+        $result = $extractor->scanFiles([$phpFile], 'test-agent!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeTrue();
         expect($result['comments'])->toHaveCount(2);
-        expect($result['comments'][0]['text'])->toContain('@claude');
+        expect($result['comments'][0]['text'])->toContain('@test-agent');
     });
 
     it('detects stop word in comments', function () {
@@ -262,11 +285,11 @@ PHP);
         $phpFile = $this->testPath.'/app/StopTest.php';
         file_put_contents($phpFile, <<<'PHP'
 <?php
-// @claude This is a regular comment
-// @claude This has the stop word claude!
+// @test-agent This is a regular comment
+// @test-agent This has the stop word test-agent!
 PHP);
 
-        $result = $extractor->scanFiles([$phpFile], 'claude!');
+        $result = $extractor->scanFiles([$phpFile], 'test-agent!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeTrue();
         expect($result['metadata']['stopWordFile'])->toBe($phpFile);
@@ -278,10 +301,10 @@ PHP);
         $phpFile = $this->testPath.'/app/NoStop.php';
         file_put_contents($phpFile, <<<'PHP'
 <?php
-// @claude Regular comment without stop word
+// @test-agent Regular comment without stop word
 PHP);
 
-        $result = $extractor->scanFiles([$phpFile], 'claude!');
+        $result = $extractor->scanFiles([$phpFile], 'test-agent!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeFalse();
         expect($result['metadata']['stopWordFile'])->toBeNull();
@@ -292,10 +315,10 @@ PHP);
 
         $file1 = $this->testPath.'/app/File1.php';
         $file2 = $this->testPath.'/app/File2.php';
-        file_put_contents($file1, "<?php\n// @claude Comment in file 1");
-        file_put_contents($file2, "<?php\n// @claude Comment in file 2 claude!");
+        file_put_contents($file1, "<?php\n// @test-agent Comment in file 1");
+        file_put_contents($file2, "<?php\n// @test-agent Comment in file 2 test-agent!");
 
-        $result = $extractor->scanFiles([$file1, $file2], 'claude!');
+        $result = $extractor->scanFiles([$file1, $file2], 'test-agent!', '@test-agent');
 
         expect($result['metadata']['filesScanned'])->toBe(2);
         expect($result['comments'])->toHaveCount(2);
@@ -305,11 +328,11 @@ PHP);
 
 describe('WatchService integration', function () {
     it('creates comments.json file with correct structure', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $comments = [
             'comments' => [
-                ['file' => '/path/to/file.php', 'line' => 10, 'text' => '@claude Test comment'],
+                ['file' => '/path/to/file.php', 'line' => 10, 'text' => '@test-agent Test comment'],
             ],
             'metadata' => [
                 'stopWordFound' => true,
@@ -329,7 +352,7 @@ describe('WatchService integration', function () {
     });
 
     it('creates parent directories for comments.json', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $comments = [
             'comments' => [],
@@ -348,13 +371,13 @@ describe('WatchService integration', function () {
     });
 
     it('groups comments by file correctly', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $comments = [
             'comments' => [
-                ['file' => '/path/file1.php', 'line' => 10, 'text' => '@claude Comment 1'],
-                ['file' => '/path/file1.php', 'line' => 20, 'text' => '@claude Comment 2'],
-                ['file' => '/path/file2.php', 'line' => 5, 'text' => '@claude Comment 3'],
+                ['file' => '/path/file1.php', 'line' => 10, 'text' => '@test-agent Comment 1'],
+                ['file' => '/path/file1.php', 'line' => 20, 'text' => '@test-agent Comment 2'],
+                ['file' => '/path/file2.php', 'line' => 5, 'text' => '@test-agent Comment 3'],
             ],
             'metadata' => [
                 'stopWordFound' => false,
@@ -372,7 +395,7 @@ describe('WatchService integration', function () {
     });
 
     it('reads and parses lock file correctly', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $lockPath = $this->testPath.'/.laracode/watch.lock';
         file_put_contents($lockPath, json_encode([
@@ -390,7 +413,7 @@ describe('WatchService integration', function () {
     });
 
     it('returns null for missing lock file', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $data = $service->readLockFile($this->testPath.'/nonexistent.lock');
 
@@ -398,7 +421,7 @@ describe('WatchService integration', function () {
     });
 
     it('cleans up lock file', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
         $lockPath = $this->testPath.'/.laracode/watch.lock';
         file_put_contents($lockPath, '{}');
@@ -411,36 +434,67 @@ describe('WatchService integration', function () {
     });
 
     it('builds claude prompt for different modes', function () {
-        $service = new WatchService;
+        $service = createWatchService();
 
-        $yoloPrompt = $service->buildClaudePrompt(['app/'], 'yolo');
-        $acceptPrompt = $service->buildClaudePrompt(['app/'], 'accept');
-        $interactivePrompt = $service->buildClaudePrompt(['app/'], 'interactive');
+        $yoloPrompt = $service->buildClaudePrompt(BuildMode::Yolo);
+        $acceptPrompt = $service->buildClaudePrompt(BuildMode::Accept);
+        $interactivePrompt = $service->buildClaudePrompt(BuildMode::Interactive);
 
-        expect($yoloPrompt)->toContain('Execute all changes without prompting');
-        expect($acceptPrompt)->toContain('Accept all edits');
-        expect($interactivePrompt)->toContain('Interactive mode');
+        expect($yoloPrompt)->toContain('Yolo - Executes without confirmation');
+        expect($acceptPrompt)->toContain('Accept - Auto-accepts all prompts');
+        expect($interactivePrompt)->toContain('Interactive - Asks before making changes');
     });
 });
 
 describe('watch config file', function () {
-    it('validates watch.json schema fields', function () {
-        $configPath = $this->testPath.'/.laracode/watch.json';
+    it('validates settings.json watch schema fields', function () {
+        $configPath = $this->testPath.'/.laracode/settings.json';
         file_put_contents($configPath, json_encode([
-            'paths' => ['app/', 'routes/', 'resources/'],
-            'stopWord' => 'claude!',
-            'mode' => 'interactive',
-            'excludePatterns' => ['vendor/*', 'node_modules/*'],
+            'watch' => [
+                'paths' => ['app/', 'routes/', 'resources/'],
+                'stopWord' => 'test-agent!',
+                'mode' => 'interactive',
+                'excludePatterns' => ['vendor/*', 'node_modules/*'],
+            ],
         ]));
 
         $config = json_decode(file_get_contents($configPath), true);
 
-        expect($config)->toHaveKey('paths');
-        expect($config)->toHaveKey('stopWord');
-        expect($config)->toHaveKey('mode');
-        expect($config)->toHaveKey('excludePatterns');
-        expect($config['paths'])->toBeArray();
-        expect($config['excludePatterns'])->toBeArray();
+        expect($config)->toHaveKey('watch');
+        expect($config['watch'])->toHaveKey('paths');
+        expect($config['watch'])->toHaveKey('stopWord');
+        expect($config['watch'])->toHaveKey('mode');
+        expect($config['watch'])->toHaveKey('excludePatterns');
+        expect($config['watch']['paths'])->toBeArray();
+        expect($config['watch']['excludePatterns'])->toBeArray();
+    });
+});
+
+describe('comment accumulation across files', function () {
+    it('accumulates comments from files without stop word and processes all when stop word arrives', function () {
+        $extractor = new CommentExtractor;
+
+        $fileA = $this->testPath.'/app/FileA.php';
+        $fileB = $this->testPath.'/app/FileB.php';
+
+        file_put_contents($fileA, "<?php\n// @test-agent Add logging here");
+        file_put_contents($fileB, "<?php\n// @test-agent Fix validation test-agent!");
+
+        $resultA = $extractor->scanFiles([$fileA], 'test-agent!', '@test-agent');
+        expect($resultA['metadata']['stopWordFound'])->toBeFalse()
+            ->and($resultA['comments'])->toHaveCount(1);
+
+        $pendingFiles = array_unique(array_column($resultA['comments'], 'file'));
+
+        $resultB = $extractor->scanFiles([$fileB], 'test-agent!', '@test-agent');
+        expect($resultB['metadata']['stopWordFound'])->toBeTrue();
+
+        $allFiles = array_values(array_unique(array_merge($pendingFiles, [$fileB])));
+        $finalResult = $extractor->scanFiles($allFiles, 'test-agent!', '@test-agent');
+
+        expect($finalResult['comments'])->toHaveCount(2)
+            ->and($finalResult['metadata']['stopWordFound'])->toBeTrue()
+            ->and($finalResult['metadata']['filesScanned'])->toBe(2);
     });
 });
 
@@ -477,15 +531,15 @@ describe('startup and post-processing stop word scanning', function () {
         $phpFile = $this->testPath.'/app/StartupTest.php';
         file_put_contents($phpFile, <<<'PHP'
 <?php
-// @ai Fix this bug ai!
+// @test-agent Fix this bug test-now!
 class StartupTest {}
 PHP);
 
-        $result = $extractor->scanFiles([$phpFile], 'ai!', '@ai');
+        $result = $extractor->scanFiles([$phpFile], 'test-now!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeTrue()
             ->and($result['comments'])->toHaveCount(1)
-            ->and($result['comments'][0]['text'])->toContain('ai!');
+            ->and($result['comments'][0]['text'])->toContain('test-now!');
     });
 
     it('scans for stop word on startup and does not find it', function () {
@@ -494,15 +548,15 @@ PHP);
         $phpFile = $this->testPath.'/app/NoStopWord.php';
         file_put_contents($phpFile, <<<'PHP'
 <?php
-// @ai Fix this bug
+// @test-agent Fix this bug
 class NoStopWord {}
 PHP);
 
-        $result = $extractor->scanFiles([$phpFile], 'ai!', '@ai');
+        $result = $extractor->scanFiles([$phpFile], 'test-now!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeFalse()
             ->and($result['comments'])->toHaveCount(1)
-            ->and($result['comments'][0]['text'])->not->toContain('ai!');
+            ->and($result['comments'][0]['text'])->not->toContain('test-now!');
     });
 
     it('filters watchable file types correctly', function () {
@@ -512,12 +566,12 @@ PHP);
         $jsFile = $this->testPath.'/app/test.js';
         $txtFile = $this->testPath.'/app/readme.txt';
 
-        file_put_contents($phpFile, "<?php\n// @ai Test ai!");
-        file_put_contents($jsFile, '// @ai Test ai!');
-        file_put_contents($txtFile, '// @ai Test ai!');
+        file_put_contents($phpFile, "<?php\n// @test-agent Test test-now!");
+        file_put_contents($jsFile, '// @test-agent Test test-now!');
+        file_put_contents($txtFile, '// @test-agent Test test-now!');
 
-        $phpResult = $extractor->scanFiles([$phpFile], 'ai!', '@ai');
-        $jsResult = $extractor->scanFiles([$jsFile], 'ai!', '@ai');
+        $phpResult = $extractor->scanFiles([$phpFile], 'test-now!', '@test-agent');
+        $jsResult = $extractor->scanFiles([$jsFile], 'test-now!', '@test-agent');
 
         expect($phpResult['metadata']['stopWordFound'])->toBeTrue()
             ->and($jsResult['metadata']['stopWordFound'])->toBeTrue()
@@ -532,11 +586,11 @@ PHP);
         $file2 = $this->testPath.'/app/File2.php';
         $file3 = $this->testPath.'/app/File3.php';
 
-        file_put_contents($file1, "<?php\n// @ai Task 1 ai!");
-        file_put_contents($file2, "<?php\n// @ai Task 2 ai!");
-        file_put_contents($file3, "<?php\n// @ai Task 3 ai!");
+        file_put_contents($file1, "<?php\n// @test-agent Task 1 test-now!");
+        file_put_contents($file2, "<?php\n// @test-agent Task 2 test-now!");
+        file_put_contents($file3, "<?php\n// @test-agent Task 3 test-now!");
 
-        $result = $extractor->scanFiles([$file1, $file2, $file3], 'ai!', '@ai');
+        $result = $extractor->scanFiles([$file1, $file2, $file3], 'test-now!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeTrue()
             ->and($result['comments'])->toHaveCount(3)
@@ -548,7 +602,7 @@ PHP);
 
         $nonExistentFile = $this->testPath.'/app/NonExistent.php';
 
-        $result = $extractor->scanFiles([$nonExistentFile], 'ai!', '@ai');
+        $result = $extractor->scanFiles([$nonExistentFile], 'test-now!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeFalse()
             ->and($result['comments'])->toBeEmpty()
@@ -561,11 +615,11 @@ PHP);
         $bladeFile = $this->testPath.'/resources/views/test.blade.php';
         mkdir($this->testPath.'/resources/views', 0755, true);
         file_put_contents($bladeFile, <<<'BLADE'
-{{-- @ai Update layout ai! --}}
+{{-- @test-agent Update layout test-now! --}}
 <div>Content</div>
 BLADE);
 
-        $result = $extractor->scanFiles([$bladeFile], 'ai!', '@ai');
+        $result = $extractor->scanFiles([$bladeFile], 'test-now!', '@test-agent');
 
         expect($result['metadata']['stopWordFound'])->toBeTrue()
             ->and($result['comments'])->toHaveCount(1);

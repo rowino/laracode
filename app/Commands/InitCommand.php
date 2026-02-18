@@ -4,6 +4,14 @@ declare(strict_types=1);
 
 namespace App\Commands;
 
+use App\Agents\AgentDetector;
+use App\Agents\AgentInterface;
+use App\Agents\AgentRegistry;
+use App\Enums\BuildMode;
+use App\Frameworks\FrameworkInterface;
+use App\Services\ProjectAnalyzer;
+use App\Services\Settings\SettingsPath;
+use App\Services\Settings\SettingsWriter;
 use LaravelZero\Framework\Commands\Command;
 
 class InitCommand extends Command
@@ -13,6 +21,15 @@ class InitCommand extends Command
         {--force : Overwrite existing files}';
 
     protected $description = 'Initialize LaraCode in an existing project';
+
+    public function __construct(
+        private AgentRegistry $agentRegistry,
+        private AgentDetector $agentDetector,
+        private ProjectAnalyzer $projectAnalyzer,
+        private SettingsWriter $settingsWriter
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -29,20 +46,215 @@ class InitCommand extends Command
             return self::FAILURE;
         }
 
+        $wasFirstTimeSetup = $this->isFirstTimeSetup();
+        if ($wasFirstTimeSetup) {
+            $this->runGlobalSetup();
+        }
+
         $this->info("Initializing LaraCode in: {$projectPath}");
         $this->newLine();
 
         $force = $this->option('force');
 
-        // Create directory structure
+        $agent = $this->agentRegistry->getDefault();
+
+        $analysis = $this->analyzeProject($projectPath);
+
+        if (! $wasFirstTimeSetup) {
+            $this->promptProjectModeOverride($projectPath);
+        }
+
+        $this->createDirectories($projectPath);
+
+        $this->copyAgentFiles($projectPath, $agent, $force);
+
+        $this->createLaracodeFiles($projectPath, $analysis['watchPaths'], $force);
+
+        $this->updateSettingsWithStatusline($projectPath, $agent);
+
+        $this->newLine();
+        $this->info('✓ LaraCode initialized!');
+        $this->newLine();
+        $this->line('Next steps:');
+        $this->line('  1. Create a feature spec in .laracode/specs/<feature>/tasks.json');
+        $this->line('  2. Run: <info>laracode build .laracode/specs/<feature>/tasks.json</info>');
+        $this->newLine();
+
+        return self::SUCCESS;
+    }
+
+    private function isFirstTimeSetup(): bool
+    {
+        $userSettingsPath = SettingsPath::user();
+
+        return $userSettingsPath === '' || ! file_exists($userSettingsPath);
+    }
+
+    private function runGlobalSetup(): void
+    {
+        $this->info('First-time setup detected. Let\'s configure LaraCode.');
+        $this->newLine();
+
+        $installed = $this->configureAgents();
+
+        $defaultMode = $this->configureDefaultMode();
+
+        $settings = [
+            'agents' => [
+                'default' => $this->agentRegistry->getDefaultName(),
+                'paths' => $installed,
+            ],
+            'defaultMode' => $defaultMode,
+        ];
+
+        $this->settingsWriter->writeUser($settings);
+
+        $this->newLine();
+        $this->info('Global settings saved to ~/.laracode/settings.json');
+        $this->newLine();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function configureAgents(): array
+    {
+        $installed = $this->agentDetector->detectInstalled();
+
+        if (empty($installed)) {
+            $this->warn('No coding agents detected. Make sure you have a coding agent installed.');
+            $this->line('  Supported agents: '.implode(', ', AgentDetector::KNOWN_AGENTS));
+            $this->newLine();
+        } else {
+            $this->line('Detected coding agents:');
+            foreach ($installed as $name => $path) {
+                $this->line("  <info>{$name}</info>: {$path}");
+            }
+            $this->newLine();
+        }
+
+        $agentNames = [...array_keys($installed), 'Custom'];
+        $defaultName = $this->agentRegistry->getDefaultName();
+        $defaultIndex = array_search($defaultName, $agentNames, true);
+        $defaultIndex = $defaultIndex !== false ? $defaultIndex : 0;
+
+        /** @var string $selectedAgent */
+        $selectedAgent = $this->choice(
+            'Select default agent',
+            $agentNames,
+            $defaultIndex
+        );
+
+        if ($selectedAgent === 'Custom') {
+            $installed = $this->promptCustomAgent($installed);
+        } elseif ($this->agentRegistry->has($selectedAgent)) {
+            $this->agentRegistry->setDefault($selectedAgent);
+        }
+
+        return $installed;
+    }
+
+    private function configureDefaultMode(): string
+    {
+        $cases = BuildMode::cases();
+        $modeLabels = array_map(fn (BuildMode $mode) => $mode->description(), $cases);
+
+        /** @var string $selectedLabel */
+        $selectedLabel = $this->choice(
+            'Select default permission mode',
+            $modeLabels,
+            0
+        );
+
+        foreach ($cases as $mode) {
+            if ($mode->description() === $selectedLabel) {
+                return $mode->value;
+            }
+        }
+
+        return BuildMode::Interactive->value;
+    }
+
+    /**
+     * @return array{framework: FrameworkInterface, watchPaths: list<string>, hasComposer: bool}
+     */
+    private function analyzeProject(string $projectPath): array
+    {
+        $analysis = $this->projectAnalyzer->analyze($projectPath);
+
+        $this->line("Detected framework: <info>{$analysis['framework']->name()}</info>");
+
+        if (! empty($analysis['watchPaths'])) {
+            $pathList = implode(', ', $analysis['watchPaths']);
+            $this->line("Suggested watch paths: <info>{$pathList}</info>");
+
+            $useDefaultPaths = $this->confirm('Use these paths?', true);
+
+            if (! $useDefaultPaths) {
+                $customPaths = $this->ask('Enter comma-separated watch paths');
+                if ($customPaths !== null && $customPaths !== '') {
+                    $analysis['watchPaths'] = array_map('trim', explode(',', $customPaths));
+                }
+            }
+        }
+
+        $this->newLine();
+
+        return $analysis;
+    }
+
+    private function promptProjectModeOverride(string $projectPath): void
+    {
+        $userSettingsPath = SettingsPath::user();
+        if ($userSettingsPath === '' || ! file_exists($userSettingsPath)) {
+            return;
+        }
+
+        $content = file_get_contents($userSettingsPath);
+        if ($content === false) {
+            return;
+        }
+
+        $userSettings = json_decode($content, true);
+        if (! is_array($userSettings)) {
+            return;
+        }
+
+        $globalMode = $userSettings['defaultMode'] ?? 'interactive';
+        $this->line("Your global default mode is '<info>{$globalMode}</info>'.");
+
+        $override = $this->confirm('Use different mode for this project?', false);
+        if ($override) {
+            $cases = BuildMode::cases();
+            $modeLabels = array_map(fn (BuildMode $mode) => $mode->description(), $cases);
+
+            /** @var string $selectedLabel */
+            $selectedLabel = $this->choice(
+                'Select project permission mode',
+                $modeLabels,
+                0
+            );
+
+            $projectMode = BuildMode::Interactive->value;
+            foreach ($cases as $mode) {
+                if ($mode->description() === $selectedLabel) {
+                    $projectMode = $mode->value;
+                    break;
+                }
+            }
+
+            $this->settingsWriter->mergeProject(['defaultMode' => $projectMode], $projectPath);
+            $this->line("  <info>Saved</info> project mode: {$projectMode}");
+        }
+
+        $this->newLine();
+    }
+
+    private function createDirectories(string $projectPath): void
+    {
         $directories = [
             '.laracode',
             '.laracode/specs',
-            '.claude',
-            '.claude/commands',
-            '.claude/skills',
-            '.claude/scripts',
-            '.claude/hooks',
         ];
 
         foreach ($directories as $dir) {
@@ -56,71 +268,191 @@ class InitCommand extends Command
         }
 
         $this->newLine();
+    }
 
-        // Create build-next.md command
-        $buildNextPath = $projectPath.'/.claude/commands/build-next.md';
-        $this->handleCommandFile($buildNextPath, $this->getBuildNextContent(), '.claude/commands/build-next.md');
+    /**
+     * @param  bool|array<int, string>|string|null  $force
+     */
+    private function copyAgentFiles(string $projectPath, AgentInterface $agent, $force): void
+    {
+        $isForce = is_bool($force) ? $force : false;
 
-        // Create generate-tasks.md skill
-        $generateTasksPath = $projectPath.'/.claude/skills/generate-tasks/SKILL.md';
-        $this->handleCommandFile($generateTasksPath, $this->getGenerateTasksContent(), '.claude/skills/generate-tasks/SKILL.md');
+        $this->line("Creating agent files for: <info>{$agent->name()}</info>");
 
-        // Create process-comments.md command
-        $processCommentsPath = $projectPath.'/.claude/commands/process-comments.md';
-        $this->handleCommandFile($processCommentsPath, $this->getProcessCommentsContent(), '.claude/commands/process-comments.md');
+        $stubs = [
+            ['stub' => 'commands/build-next.md', 'install' => 'installCommand', 'type' => 'commands'],
+            ['stub' => 'commands/process-comments.md', 'install' => 'installCommand', 'type' => 'commands'],
+            ['stub' => 'skills/generate-tasks/SKILL.md', 'install' => 'installSkill', 'type' => 'skills'],
+            ['stub' => 'hooks/session-start.php', 'install' => 'installHook', 'type' => 'hooks'],
+        ];
 
-        // Create watch.json config (only if it doesn't exist or --force)
-        $watchConfigPath = $projectPath.'/.laracode/watch.json';
-        if (! file_exists($watchConfigPath) || $force) {
-            file_put_contents($watchConfigPath, $this->getWatchConfigContent());
-            $this->line('  <info>Created</info> .laracode/watch.json');
-        } else {
-            $this->line('  <comment>Exists</comment> .laracode/watch.json');
+        foreach ($stubs as $item) {
+            $targetRelPath = $this->probeAgentInstallPath($agent, $item['stub'], $item['install']);
+
+            if ($targetRelPath === null) {
+                $this->line('  <comment>Skipped</comment> '.basename($item['stub'])." (agent does not support {$item['type']})");
+
+                continue;
+            }
+
+            $targetAbsPath = $projectPath.'/'.$targetRelPath;
+            $stubContent = $this->loadStub($item['stub']);
+            $this->handleCommandFile($targetAbsPath, $stubContent, $targetRelPath, $isForce);
         }
 
-        // Create sample tasks.json template
+        $configBasePath = $this->probeAgentConfigBase($agent);
+        if ($configBasePath !== null) {
+            $scriptsRelPath = $configBasePath.'/scripts/statusline.php';
+            $scriptsAbsPath = $projectPath.'/'.$scriptsRelPath;
+            $stubContent = $this->loadStub('scripts/statusline.php');
+            $this->handleCommandFile($scriptsAbsPath, $stubContent, $scriptsRelPath, $isForce);
+        }
+    }
+
+    /**
+     * @param  list<string>  $watchPaths
+     * @param  bool|array<int, string>|string|null  $force
+     */
+    private function createLaracodeFiles(string $projectPath, array $watchPaths, bool|array|string|null $force): void
+    {
+        $isForce = is_bool($force) ? $force : false;
+
+        $settingsPath = $projectPath.'/.laracode/settings.json';
+
+        if (! file_exists($settingsPath) || $isForce) {
+            file_put_contents($settingsPath, $this->getSettingsContent($watchPaths));
+            $this->line('  <info>Created</info> .laracode/settings.json');
+        } else {
+            $this->settingsWriter->mergeProject(['watch' => ['paths' => $watchPaths]], $projectPath);
+            $this->line('  <info>Updated</info> .laracode/settings.json (watch paths)');
+        }
+
         $samplePath = $projectPath.'/.laracode/specs/example/tasks.json';
         $sampleDir = dirname($samplePath);
         if (! is_dir($sampleDir)) {
             mkdir($sampleDir, 0755, true);
         }
-        if (! file_exists($samplePath) || $force) {
+        if (! file_exists($samplePath) || $isForce) {
             file_put_contents($samplePath, $this->getSampleTasksContent());
             $this->line('  <info>Created</info> .laracode/specs/example/tasks.json');
         } else {
             $this->line('  <comment>Exists</comment> .laracode/specs/example/tasks.json');
         }
+    }
 
-        // Create statusline script
-        $statuslinePath = $projectPath.'/.claude/scripts/statusline.php';
-        if (! file_exists($statuslinePath) || $force) {
-            file_put_contents($statuslinePath, $this->getStatuslineContent());
-            $this->line('  <info>Created</info> .claude/scripts/statusline.php');
-        } else {
-            $this->line('  <comment>Exists</comment> .claude/scripts/statusline.php');
+    /**
+     * @param  array<string, string>  $installed
+     * @return array<string, string>
+     */
+    private function promptCustomAgent(array $installed): array
+    {
+        /** @var string|null $customPath */
+        $customPath = $this->ask('Enter the executable path');
+        if ($customPath === null || $customPath === '') {
+            $this->warn('No path provided. Skipping custom agent.');
+
+            return $installed;
         }
 
-        // Create session-start hook
-        $sessionStartPath = $projectPath.'/.claude/hooks/session-start.php';
-        if (! file_exists($sessionStartPath) || $force) {
-            file_put_contents($sessionStartPath, $this->getSessionStartHookContent());
-            $this->line('  <info>Created</info> .claude/hooks/session-start.php');
-        } else {
-            $this->line('  <comment>Exists</comment> .claude/hooks/session-start.php');
+        if (! $this->agentDetector->validatePath($customPath)) {
+            $this->warn("Invalid executable path: {$customPath}");
+
+            /** @var string $retry */
+            $retry = $this->choice(
+                'What would you like to do?',
+                ['Try another path', 'Skip'],
+                0
+            );
+
+            if ($retry === 'Try another path') {
+                return $this->promptCustomAgent($installed);
+            }
+
+            return $installed;
         }
 
-        // Update settings.local.json with statusLine and hooks config
-        $this->updateSettingsWithStatusline($projectPath);
+        /** @var string $agentName */
+        $agentName = $this->ask('Enter the agent name for this executable') ?? 'custom';
+        $installed[$agentName] = $customPath;
 
-        $this->newLine();
-        $this->info('✓ LaraCode initialized!');
-        $this->newLine();
-        $this->line('Next steps:');
-        $this->line('  1. Create a feature spec in .laracode/specs/<feature>/tasks.json');
-        $this->line('  2. Run: <info>laracode build .laracode/specs/<feature>/tasks.json</info>');
-        $this->newLine();
+        if ($this->agentRegistry->has($agentName)) {
+            $this->agentRegistry->setDefault($agentName);
+        }
 
-        return self::SUCCESS;
+        return $installed;
+    }
+
+    private function probeAgentInstallPath(AgentInterface $agent, string $stubPath, string $installMethod): ?string
+    {
+        $probeDir = sys_get_temp_dir().'/laracode-probe-'.uniqid();
+        mkdir($probeDir, 0755, true);
+
+        $sourceDir = $probeDir.'/source';
+        $sourceSubdir = $sourceDir.'/'.dirname($stubPath);
+        if (! is_dir($sourceSubdir)) {
+            mkdir($sourceSubdir, 0755, true);
+        }
+        $sourceFile = $sourceDir.'/'.$stubPath;
+        file_put_contents($sourceFile, 'probe');
+
+        $targetDir = $probeDir.'/target';
+        mkdir($targetDir, 0755, true);
+
+        $originalDir = getcwd();
+        chdir($targetDir);
+
+        try {
+            $agent->{$installMethod}($sourceFile);
+
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($targetDir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+
+            foreach ($iterator as $file) {
+                if ($file->isFile()) {
+                    $relativePath = substr($file->getPathname(), strlen($targetDir) + 1);
+
+                    return $relativePath;
+                }
+            }
+
+            return null;
+        } finally {
+            if ($originalDir !== false) {
+                chdir($originalDir);
+            }
+
+            $this->cleanupTempDir($probeDir);
+        }
+    }
+
+    private function probeAgentConfigBase(AgentInterface $agent): ?string
+    {
+        $result = $this->probeAgentInstallPath($agent, 'probe.txt', 'installConfig');
+        if ($result === null) {
+            return null;
+        }
+
+        return dirname($result);
+    }
+
+    private function cleanupTempDir(string $dir): void
+    {
+        if (! is_dir($dir)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        foreach ($iterator as $item) {
+            $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+        }
+
+        @rmdir($dir);
     }
 
     private function getBuildNextContent(): string
@@ -128,7 +460,7 @@ class InitCommand extends Command
         return $this->loadStub('commands/build-next.md');
     }
 
-    private function handleCommandFile(string $filePath, string $templateContent, string $displayName): void
+    private function handleCommandFile(string $filePath, string $templateContent, string $displayName, bool $force = false): void
     {
         $dir = dirname($filePath);
         if (! is_dir($dir)) {
@@ -142,7 +474,7 @@ class InitCommand extends Command
             return;
         }
 
-        if ($this->option('force')) {
+        if ($force) {
             file_put_contents($filePath, $templateContent);
             $this->line("  <info>Overwritten</info> {$displayName}");
 
@@ -221,11 +553,11 @@ class InitCommand extends Command
         $escapedFilePath = escapeshellarg($filePath);
         $escapedBasePath = escapeshellarg($basePath);
         $escapedTemplatePath = escapeshellarg($templatePath);
-        $command = "git merge-file -p {$escapedFilePath} {$escapedBasePath} {$escapedTemplatePath}";
+        $mergeCommand = "git merge-file -p {$escapedFilePath} {$escapedBasePath} {$escapedTemplatePath}";
 
         $output = [];
         $returnCode = 0;
-        exec($command, $output, $returnCode);
+        exec($mergeCommand, $output, $returnCode);
 
         if ($returnCode === 0 || $returnCode === 1) {
             $mergedContent = implode("\n", $output);
@@ -260,9 +592,19 @@ class InitCommand extends Command
         return $this->loadStub('commands/process-comments.md');
     }
 
-    private function getWatchConfigContent(): string
+    /**
+     * @param  list<string>  $watchPaths
+     */
+    private function getSettingsContent(array $watchPaths): string
     {
-        return $this->loadStub('watch.json');
+        $stub = $this->loadStub('settings.json');
+        $settings = json_decode($stub, true);
+
+        if (is_array($settings) && isset($settings['watch'])) {
+            $settings['watch']['paths'] = $watchPaths;
+        }
+
+        return json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
     }
 
     private function loadStub(string $filename): string
@@ -287,54 +629,58 @@ class InitCommand extends Command
         return $this->loadStub('hooks/session-start.php');
     }
 
-    private function updateSettingsWithStatusline(string $projectPath): void
+    private function updateSettingsWithStatusline(string $projectPath, AgentInterface $agent): void
     {
-        $settingsPath = $projectPath.'/.claude/settings.local.json';
+        $configBase = $this->probeAgentConfigBase($agent);
+        if ($configBase === null) {
+            return;
+        }
 
-        $settings = [];
-        if (file_exists($settingsPath)) {
-            $content = file_get_contents($settingsPath);
-            if ($content !== false) {
-                $settings = json_decode($content, true) ?? [];
+        $scriptsFolder = $configBase.'/scripts';
+
+        $originalDir = getcwd();
+        chdir($projectPath);
+
+        try {
+            $existingSettings = $agent->getSettings('project');
+
+            if (! isset($existingSettings['statusLine'])) {
+                $agent->updateSettings('project', [
+                    'statusLine' => [
+                        'type' => 'command',
+                        'command' => 'php '.$scriptsFolder.'/statusline.php',
+                    ],
+                ]);
+                $this->line('  <info>Updated</info> agent settings (statusLine config)');
+            } else {
+                $this->line('  <comment>Exists</comment> agent settings (statusLine already configured)');
             }
-        }
 
-        $updated = false;
-
-        // Add statusLine if not already configured
-        if (! isset($settings['statusLine'])) {
-            $settings['statusLine'] = [
-                'type' => 'command',
-                'command' => 'php .claude/scripts/statusline.php',
-            ];
-            $updated = true;
-        }
-
-        // Add SessionStart hook if not already configured
-        if (! isset($settings['hooks']['SessionStart'])) {
-            $settings['hooks'] = $settings['hooks'] ?? [];
-            $settings['hooks']['SessionStart'] = [
-                [
-                    'matcher' => '*',
+            if (! isset($existingSettings['hooks']['SessionStart'])) {
+                $agent->updateSettings('project', [
                     'hooks' => [
-                        [
-                            'type' => 'command',
-                            'command' => 'php .claude/hooks/session-start.php',
+                        'SessionStart' => [
+                            [
+                                'matcher' => '*',
+                                'hooks' => [
+                                    [
+                                        'type' => 'command',
+                                        'command' => 'php .claude/hooks/session-start.php',
+                                    ],
+                                ],
+                            ],
                         ],
                     ],
-                ],
-            ];
-            $updated = true;
-        }
+                ]);
+                $this->line('  <info>Updated</info> agent settings (SessionStart hook)');
+            } else {
+                $this->line('  <comment>Exists</comment> agent settings (SessionStart hook already configured)');
+            }
 
-        if ($updated) {
-            file_put_contents(
-                $settingsPath,
-                json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
-            );
-            $this->line('  <info>Updated</info> .claude/settings.local.json');
-        } else {
-            $this->line('  <comment>Exists</comment> .claude/settings.local.json (already configured)');
+        } finally {
+            if ($originalDir !== false) {
+                chdir($originalDir);
+            }
         }
     }
 }

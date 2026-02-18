@@ -57,6 +57,27 @@ Add `ai!` when ready to trigger Claude:
 ```
 
 ## Task Generation
+### `laracode self-update`
+
+Updates LaraCode to the latest version from GitHub releases.
+
+```bash
+# Update to latest stable version
+laracode self-update
+
+# Check for updates without installing
+laracode self-update --check
+
+# Include pre-release versions
+laracode self-update --unstable
+
+# Rollback to previous version
+laracode self-update --rollback
+```
+
+> **Note:** Self-update only works when running from the PHAR binary. For development installs, use `composer update` instead.
+
+## Task Generation with `/generate-tasks`
 
 The `/generate-tasks` skill generates structured task files from conversations or spec files.
 

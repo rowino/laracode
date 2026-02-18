@@ -1,6 +1,8 @@
 /vendor
+/node_modules
 /.idea
 /.vscode
 /.vagrant
 .phpunit.result.cache
 .claude/settings.local.json
+.laracode/settings.local.json
