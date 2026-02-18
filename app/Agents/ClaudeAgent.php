@@ -11,15 +11,15 @@ use App\Enums\BuildMode;
  */
 class ClaudeAgent implements AgentInterface
 {
-    private const string CONFIG_FOLDER = '.claude';
+    private const CONFIG_FOLDER = '.claude';
 
-    private const string COMMANDS_FOLDER = '.claude/commands';
+    private const COMMANDS_FOLDER = '.claude/commands';
 
-    private const string SKILLS_FOLDER = '.claude/skills';
+    private const SKILLS_FOLDER = '.claude/skills';
 
-    private const string HOOKS_FOLDER = '.claude/hooks';
+    private const HOOKS_FOLDER = '.claude/hooks';
 
-    private const string SETTINGS_FILE = 'settings.local.json';
+    private const SETTINGS_FILE = 'settings.local.json';
 
     public function name(): string
     {

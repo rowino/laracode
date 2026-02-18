@@ -40,7 +40,7 @@ afterEach(function () {
 
 it('uses defaultMode from settings when --mode flag is omitted', function () {
     // Create settings file with defaultMode
-    $settingsPath = $this->testPath.'/.claude/settings.json';
+    $settingsPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($settingsPath, json_encode([
         'defaultMode' => 'yolo',
     ]));
@@ -58,7 +58,7 @@ it('uses defaultMode from settings when --mode flag is omitted', function () {
 
 it('respects explicit --mode flag over settings', function () {
     // Create settings file with defaultMode=plan
-    $settingsPath = $this->testPath.'/.claude/settings.json';
+    $settingsPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($settingsPath, json_encode([
         'defaultMode' => 'plan',
     ]));
@@ -114,7 +114,7 @@ it('handles project-level mode override in nested settings', function () {
         file_put_contents($userSettingsPath, json_encode(['defaultMode' => 'interactive']));
 
         // Create project-level settings with defaultMode=plan
-        $projectSettingsPath = $this->testPath.'/.claude/settings.json';
+        $projectSettingsPath = $this->testPath.'/.laracode/settings.json';
         file_put_contents($projectSettingsPath, json_encode(['defaultMode' => 'plan']));
 
         mockAgentRunnerForModeTest();
@@ -155,7 +155,7 @@ it('resolves mode correctly when settings service is properly injected', functio
 
 it('prioritizes CLI mode over empty string from settings', function () {
     // Create settings with empty defaultMode
-    $settingsPath = $this->testPath.'/.claude/settings.json';
+    $settingsPath = $this->testPath.'/.laracode/settings.json';
     file_put_contents($settingsPath, json_encode([
         'defaultMode' => '',
     ]));

@@ -11,9 +11,9 @@ use App\Enums\BuildMode;
  */
 class CodexAgent implements AgentInterface
 {
-    private const string CONFIG_FOLDER = '.codex';
+    private const CONFIG_FOLDER = '.codex';
 
-    private const string SETTINGS_FILE = 'config.toml';
+    private const SETTINGS_FILE = 'config.toml';
 
     public function name(): string
     {

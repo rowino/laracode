@@ -11,13 +11,13 @@ use App\Enums\BuildMode;
  */
 class OpenCodeAgent implements AgentInterface
 {
-    private const string CONFIG_FOLDER = '.opencode';
+    private const CONFIG_FOLDER = '.opencode';
 
-    private const string COMMANDS_FOLDER = '.opencode/commands';
+    private const COMMANDS_FOLDER = '.opencode/commands';
 
-    private const string SKILLS_FOLDER = '.opencode/skills';
+    private const SKILLS_FOLDER = '.opencode/skills';
 
-    private const string SETTINGS_FILE = 'opencode.json';
+    private const SETTINGS_FILE = 'opencode.json';
 
     public function name(): string
     {

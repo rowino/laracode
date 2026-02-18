@@ -11,7 +11,7 @@ use App\Enums\BuildMode;
  */
 class AiderAgent implements AgentInterface
 {
-    private const string SETTINGS_FILE = '.aider.conf.yml';
+    private const SETTINGS_FILE = '.aider.conf.yml';
 
     public function name(): string
     {
