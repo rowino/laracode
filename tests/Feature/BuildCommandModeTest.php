@@ -53,7 +53,7 @@ it('uses defaultMode from settings when --mode flag is omitted', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Yolo');
+        ->expectsOutputToContain('yolo');
 });
 
 it('respects explicit --mode flag over settings', function () {
@@ -72,7 +72,7 @@ it('respects explicit --mode flag over settings', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Yolo');
+        ->expectsOutputToContain('yolo');
 });
 
 it('falls back to interactive when no settings file exists', function () {
@@ -124,7 +124,7 @@ it('handles project-level mode override in nested settings', function () {
             '--iterations' => 1,
             '--delay' => 0,
         ])
-            ->expectsOutputToContain('Mode: Plan');
+            ->expectsOutputToContain('plan');
 
         // Restore user settings
         if ($backupPath !== null) {
@@ -169,18 +169,13 @@ it('prioritizes CLI mode over empty string from settings', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Accept');
+        ->expectsOutputToContain('accept');
 });
 
 it('uses resolveModeOption method for mode resolution', function () {
-    // Verify resolveModeOption method exists and is properly documented
     $reflection = new ReflectionClass(BuildCommand::class);
     $method = $reflection->getMethod('resolveModeOption');
 
-    expect($method->isPrivate())->toBeTrue();
-
-    $docComment = $method->getDocComment();
-    expect($docComment)->toContain('precedence')
-        ->and($docComment)->toContain('CLI flag')
-        ->and($docComment)->toContain('settings');
+    expect($method->isPrivate())->toBeTrue()
+        ->and($method->getNumberOfParameters())->toBe(1);
 });

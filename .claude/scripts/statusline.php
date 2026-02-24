@@ -29,6 +29,9 @@ fclose($stdin);
 
 $status = $input ? json_decode($input, true) : [];
 
+// Extract session_id for lock file matching
+$sessionId = $status['session_id'] ?? null;
+
 // Extract model - handle both nested format and simple string
 $model = 'Unknown';
 if (isset($status['model'])) {
@@ -52,8 +55,11 @@ if (isset($status['context_window'])) {
     }
 }
 
-// Find active build lock file
-$lockFile = findActiveLock();
+// Get current git branch
+$gitBranch = getCurrentBranch();
+
+// Find active build lock file (matching session_id if available)
+$lockFile = findActiveLock($sessionId);
 $taskInfo = '';
 
 if ($lockFile && file_exists($lockFile)) {
@@ -78,6 +84,10 @@ $modelShort = formatModelName($model);
 // Build the status line with ANSI colors
 $statusLine = '';
 
+if ($gitBranch) {
+    $statusLine .= "\033[35m[{$gitBranch}]\033[0m "; // Magenta for branch
+}
+
 if ($taskInfo) {
     $statusLine .= "\033[36m{$taskInfo}\033[0m"; // Cyan for task info
 }
@@ -91,9 +101,19 @@ $statusLine .= "{$contextColor}{$contextPercent}%\033[0m";
 echo $statusLine;
 
 /**
- * Find the active lock file in .laracode/specs/
+ * Get current git branch name
  */
-function findActiveLock(): ?string
+function getCurrentBranch(): ?string
+{
+    $result = exec('git rev-parse --abbrev-ref HEAD 2>/dev/null', $output, $returnCode);
+
+    return $returnCode === 0 && $result ? trim($result) : null;
+}
+
+/**
+ * Find the active lock file in .laracode/specs/ matching the session_id
+ */
+function findActiveLock(?string $sessionId): ?string
 {
     $cwd = getcwd();
     if ($cwd === false) {
@@ -110,6 +130,23 @@ function findActiveLock(): ?string
         return null;
     }
 
+    // First pass: try to match by session_id
+    if ($sessionId !== null) {
+        foreach ($dirs as $dir) {
+            $lockPath = $dir.'/index.lock';
+            if (file_exists($lockPath)) {
+                $content = file_get_contents($lockPath);
+                if ($content !== false) {
+                    $data = json_decode($content, true);
+                    if (isset($data['session_id']) && $data['session_id'] === $sessionId) {
+                        return $lockPath;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: return first lock file (backward compatibility)
     foreach ($dirs as $dir) {
         $lockPath = $dir.'/index.lock';
         if (file_exists($lockPath)) {

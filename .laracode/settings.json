@@ -1,9 +1,10 @@
 {
     "watch": {
         "paths": [
-            "app/",
-            "routes/",
-            "resources/"
+            "app",
+            "config",
+            "resources",
+            "tests"
         ],
         "searchWord": "@claude",
         "stopWord": "claude!",
@@ -19,5 +20,21 @@
             "**/*.log",
             "**/.DS_Store"
         ]
-    }
+    },
+    "testing": {
+        "commands": [
+            "composer test",
+            "composer checks"
+        ]
+    },
+    "linting": {
+        "commands": [
+            "composer lint",
+            "composer phpstan"
+        ]
+    },
+    "worktrees": {
+        "defaultSourceBranch": "master"
+    },
+    "defaultMode": "yolo"
 }

@@ -7,7 +7,14 @@ namespace App\Commands;
 use App\Enums\BuildMode;
 use App\Services\AgentRunner;
 use App\Services\Settings\SettingsService;
+use App\Services\TaskSelector;
+use App\Tui\DashboardRenderer;
+use App\Tui\DashboardState;
+use App\Tui\SessionRegistry;
 use LaravelZero\Framework\Commands\Command;
+use Symfony\Component\Console\Output\BufferedOutput;
+
+use function Termwind\renderUsing;
 
 class BuildCommand extends Command
 {
@@ -21,29 +28,31 @@ class BuildCommand extends Command
 
     public function __construct(
         private AgentRunner $agentRunner,
-        private SettingsService $settingsService
+        private SettingsService $settingsService,
+        private DashboardRenderer $renderer,
+        private TaskSelector $taskSelector,
+        private SessionRegistry $registry,
     ) {
         parent::__construct();
     }
 
     public function handle(): int
     {
+        $startTime = time();
+
         /** @var string $tasksPath */
         $tasksPath = $this->argument('path');
         $maxIterations = (int) $this->option('iterations');
         $delay = (int) $this->option('delay');
 
-        // Validate tasks file exists first to get project path
         if (! file_exists($tasksPath)) {
             $this->error("Tasks file not found: {$tasksPath}");
 
             return self::FAILURE;
         }
 
-        // Determine project path early for settings resolution
         $realTasksPath = realpath($tasksPath);
         $projectPath = $realTasksPath ? dirname($realTasksPath) : dirname($tasksPath);
-        // Try to find project root by looking for .claude or .laracode directory
         while ($projectPath !== '/' && ! is_dir($projectPath.'/.claude') && ! is_dir($projectPath.'/.laracode')) {
             $projectPath = dirname($projectPath);
         }
@@ -62,7 +71,6 @@ class BuildCommand extends Command
             return self::FAILURE;
         }
 
-        // Parse and validate JSON
         $content = file_get_contents($tasksPath);
         if ($content === false) {
             $this->error("Cannot read tasks file: {$tasksPath}");
@@ -84,48 +92,51 @@ class BuildCommand extends Command
             return self::FAILURE;
         }
 
-        // Compute lock path next to tasks.json
         $lockPath = dirname($realTasksPath ?: $tasksPath).'/index.lock';
+        $canonicalTasksPath = $realTasksPath ?: $tasksPath;
 
-        $this->info("Project path: {$projectPath}");
-        $this->displayStats($tasks);
+        $this->registry->register($canonicalTasksPath, (int) getmypid(), $mode->value, $projectPath);
 
-        $this->registerSignalHandlers($lockPath);
+        $this->renderDashboard($tasks, 0, $maxIterations, $startTime, null, $mode);
+
+        $this->registerSignalHandlers($lockPath, $canonicalTasksPath);
 
         $iteration = 0;
 
         while ($iteration < $maxIterations) {
-            // Reload tasks on each iteration (agent may have updated them)
             $content = file_get_contents($tasksPath);
             if ($content === false) {
+                $iteration++;
+
                 continue;
             }
-            /** @var array{title: string, tasks: array<array{id: int, status: string, description?: string, title?: string, dependencies?: array<int>}>} $tasks */
-            $tasks = json_decode($content, true);
+            $decoded = json_decode($content, true);
 
-            // Find pending tasks
-            $pending = array_filter($tasks['tasks'], fn ($t) => $t['status'] === 'pending');
+            if (! is_array($decoded) || ! isset($decoded['tasks'])) {
+                $iteration++;
 
-            if (empty($pending)) {
-                $this->newLine();
-                $this->info('✓ All tasks completed!');
-                $this->displayFinalStats($tasks);
+                continue;
+            }
+
+            /** @var array{title: string, tasks: array<array{id: int, status: string, description?: string, title?: string, dependencies?: array<int>}>} $decoded */
+            $tasks = $decoded;
+
+            $nextTask = $this->taskSelector->selectNextTask($tasks['tasks']);
+
+            if ($nextTask === null) {
+                $this->registry->deregister($canonicalTasksPath);
+                $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, null, $mode, 'All tasks completed!');
+                $this->captureTermwindOutput(fn () => $this->renderer->renderFinalStats($tasks));
 
                 return self::SUCCESS;
             }
 
             $iteration++;
-            $nextTask = reset($pending);
-
-            $this->newLine();
-            $this->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            $this->info("Iteration {$iteration}/{$maxIterations}");
             $taskLabel = $nextTask['title'] ?? $nextTask['description'] ?? 'Untitled';
-            $this->line("<comment>Next Task:</comment> #{$nextTask['id']} - {$taskLabel}");
+            $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, $nextTask['id'], $mode, "Task #{$nextTask['id']}: {$taskLabel}");
 
             $this->runAgent($projectPath, $mode, $tasksPath, $lockPath, $nextTask);
 
-            // Read completion signal and update stats
             $completedPath = dirname($realTasksPath ?: $tasksPath).'/completed.json';
             if (file_exists($completedPath)) {
                 $completionContent = file_get_contents($completedPath);
@@ -136,8 +147,8 @@ class BuildCommand extends Command
                         $this->updateTaskStats(
                             $tasksPath,
                             (int) $completion['taskId'],
-                            $completion['startedAt'],
-                            $completion['completedAt'],
+                            (string) $completion['startedAt'],
+                            (string) $completion['completedAt'],
                             $gitStats
                         );
                     }
@@ -145,45 +156,34 @@ class BuildCommand extends Command
                 @unlink($completedPath);
             }
 
-            // Reload and display stats
             $content = file_get_contents($tasksPath);
             if ($content !== false) {
                 /** @var array{title: string, tasks: array<array{id: int, status: string, description?: string, title?: string, dependencies?: array<int>}>} $tasks */
                 $tasks = json_decode($content, true);
-                $this->displayStats($tasks);
+                $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, null, $mode);
             }
 
-            // Check if there are still pending tasks
             $pending = array_filter($tasks['tasks'], fn ($t) => $t['status'] === 'pending');
             if (! empty($pending) && $iteration < $maxIterations) {
-                $this->info("Sleeping {$delay}s before next task...");
                 sleep($delay);
             }
         }
 
-        $this->newLine();
-        $this->warn("Reached max iterations ({$maxIterations})");
-        $this->displayStats($tasks);
+        $this->registry->deregister($canonicalTasksPath);
+        $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, null, $mode, "Reached max iterations ({$maxIterations})");
 
         return self::SUCCESS;
     }
 
-    /**
-     * Resolves the mode option with precedence: CLI flag > settings > fallback.
-     * Reads defaultMode from SettingsService when --mode flag is not explicitly provided.
-     * Falls back to 'interactive' if no settings found.
-     */
     private function resolveModeOption(string $projectPath): string
     {
         /** @var string|null $cliMode */
         $cliMode = $this->option('mode');
 
-        // CLI flag takes precedence
         if ($cliMode !== null && $cliMode !== '') {
             return $cliMode;
         }
 
-        // Read from settings
         $this->settingsService->setProjectPath($projectPath);
         /** @var string|null $defaultMode */
         $defaultMode = $this->settingsService->get('defaultMode');
@@ -196,11 +196,7 @@ class BuildCommand extends Command
      */
     private function runAgent(string $projectPath, BuildMode $mode, string $tasksPath, string $lockPath, array $currentTask): void
     {
-        $this->line("<comment>Mode:</comment> {$mode->description()}");
-
         $prompt = "/build-next $tasksPath";
-        $this->line("Running agent with prompt: {$prompt}");
-        $this->newLine();
 
         $process = $this->agentRunner->run(
             $mode,
@@ -224,8 +220,6 @@ class BuildCommand extends Command
         }
 
         $this->agentRunner->monitor($process, $lockPath, function (int $pid) use ($process): void {
-            $this->newLine();
-            $this->line('<comment>Lock file removed, terminating agent...</comment>');
             $this->agentRunner->terminate($process, $pid);
         });
 
@@ -236,22 +230,23 @@ class BuildCommand extends Command
     private function restoreTerminal(): void
     {
         if (defined('STDOUT') && function_exists('posix_isatty') && posix_isatty(STDOUT)) {
-            echo "\e[?25h";    // Show cursor
-            echo "\e[?1004l"; // Disable focus reporting
+            echo "\e[?25h";
+            echo "\e[?1004l";
             system('stty sane 2>/dev/null');
         }
     }
 
-    private function registerSignalHandlers(string $lockPath): void
+    private function registerSignalHandlers(string $lockPath, string $tasksPath): void
     {
         if (! function_exists('pcntl_signal')) {
             return;
         }
 
-        $cleanup = function () use ($lockPath): void {
+        $cleanup = function () use ($lockPath, $tasksPath): void {
+            $this->registry->deregister($tasksPath);
             @unlink($lockPath);
             $this->restoreTerminal();
-            exit(130); // Standard exit code for SIGINT
+            exit(130);
         };
 
         pcntl_signal(SIGINT, $cleanup);
@@ -262,100 +257,66 @@ class BuildCommand extends Command
     /**
      * @param  array<string, mixed>  $tasks
      */
-    private function displayStats(array $tasks): void
+    private function renderDashboard(
+        array $tasks,
+        int $iteration,
+        int $maxIterations,
+        int $startTime,
+        ?int $activeTaskId,
+        BuildMode $mode,
+        string $statusMessage = '',
+    ): void {
+        if ($statusMessage === '') {
+            $statusMessage = $this->buildStatusMessage($tasks['tasks'] ?? []);
+        }
+
+        $state = DashboardState::fromTasksArray(
+            $tasks,
+            $iteration,
+            $maxIterations,
+            time() - $startTime,
+            $activeTaskId,
+            $mode->value,
+            $statusMessage,
+        );
+
+        $this->captureTermwindOutput(fn () => $this->renderer->render($state));
+    }
+
+    private function captureTermwindOutput(callable $callback): void
     {
-        $total = count($tasks['tasks']);
-        $completed = count(array_filter($tasks['tasks'], fn ($t) => $t['status'] === 'completed'));
-        $pending = count(array_filter($tasks['tasks'], fn ($t) => $t['status'] === 'pending'));
-        $blocked = $this->countBlockedTasks($tasks['tasks']);
-        $percentage = $total > 0 ? (int) round(($completed / $total) * 100) : 0;
+        $buffer = new BufferedOutput;
+        renderUsing($buffer);
+        $callback();
+        $captured = $buffer->fetch();
+        renderUsing(null);
 
-        $barLength = 20;
-        $filled = (int) round($barLength * $percentage / 100);
-        $bar = str_repeat('█', $filled).str_repeat('░', $barLength - $filled);
-
-        $featureName = $tasks['title'] ?? $tasks['feature'] ?? 'Unknown';
-
-        $this->newLine();
-        $this->line("Feature: <info>{$featureName}</info>");
-
-        if (! empty($tasks['branch'])) {
-            $this->line("Branch:  <comment>{$tasks['branch']}</comment>");
+        foreach (explode("\n", $captured) as $line) {
+            if ($line !== '') {
+                $this->line($line);
+            }
         }
-
-        if (! empty($tasks['created'])) {
-            $createdDate = date('Y-m-d H:i', strtotime($tasks['created']));
-            $this->line("Created: {$createdDate}");
-        }
-
-        $this->line("Progress: [{$bar}] {$percentage}%");
-
-        $statsLine = "Tasks: <info>{$completed}</info>/{$total} completed | <comment>{$pending}</comment> pending";
-        if ($blocked > 0) {
-            $statsLine .= " | <fg=red>{$blocked}</> blocked";
-        }
-        $this->line($statsLine);
     }
 
     /**
      * @param  array<array{id: int, status: string, dependencies?: array<int>}>  $taskList
      */
-    private function countBlockedTasks(array $taskList): int
+    private function buildStatusMessage(array $taskList): string
     {
-        $completedIds = [];
-        foreach ($taskList as $task) {
-            if ($task['status'] === 'completed') {
-                $completedIds[$task['id']] = true;
-            }
+        $total = count($taskList);
+        $completed = count(array_filter($taskList, fn ($t) => $t['status'] === 'completed'));
+        $pending = count(array_filter($taskList, fn ($t) => $t['status'] === 'pending'));
+        $blocked = $this->taskSelector->countBlockedTasks($taskList);
+
+        $parts = ["{$completed}/{$total} completed"];
+        if ($pending > 0) {
+            $parts[] = "{$pending} pending";
+        }
+        if ($blocked > 0) {
+            $parts[] = "{$blocked} blocked";
         }
 
-        $blocked = 0;
-        foreach ($taskList as $task) {
-            if ($task['status'] !== 'pending') {
-                continue;
-            }
-
-            $dependencies = $task['dependencies'] ?? [];
-            if (empty($dependencies)) {
-                continue;
-            }
-
-            foreach ($dependencies as $depId) {
-                if (! isset($completedIds[$depId])) {
-                    $blocked++;
-                    break;
-                }
-            }
-        }
-
-        return $blocked;
-    }
-
-    /**
-     * @param  array{tasks: array<array{stats?: array{durationSeconds?: int}}>, stats?: array{filesChanged?: int, linesAdded?: int, linesRemoved?: int}}  $tasks
-     */
-    private function displayFinalStats(array $tasks): void
-    {
-        $totalSeconds = 0;
-        foreach ($tasks['tasks'] as $task) {
-            $totalSeconds += $task['stats']['durationSeconds'] ?? 0;
-        }
-
-        $minutes = (int) floor($totalSeconds / 60);
-        $seconds = $totalSeconds % 60;
-        $durationStr = $minutes > 0 ? "{$minutes}m {$seconds}s" : "{$seconds}s";
-
-        $filesChanged = $tasks['stats']['filesChanged'] ?? 0;
-        $linesAdded = $tasks['stats']['linesAdded'] ?? 0;
-        $linesRemoved = $tasks['stats']['linesRemoved'] ?? 0;
-
-        $this->newLine();
-        $this->line('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        $this->line('<info>Build Statistics</info>');
-        $this->line("Total Duration:  <comment>{$durationStr}</comment>");
-        $this->line("Files Changed:   <comment>{$filesChanged}</comment>");
-        $this->line("Lines Added:     <fg=green>+{$linesAdded}</>");
-        $this->line("Lines Removed:   <fg=red>-{$linesRemoved}</>");
+        return implode(' | ', $parts);
     }
 
     /**
@@ -379,7 +340,6 @@ class BuildCommand extends Command
         fclose($pipes[2]);
         proc_close($process);
 
-        // Parse summary line: "X files changed, Y insertions(+), Z deletions(-)"
         preg_match('/(\d+) files? changed/', $output ?: '', $files);
         preg_match('/(\d+) insertions?\(\+\)/', $output ?: '', $added);
         preg_match('/(\d+) deletions?\(-\)/', $output ?: '', $removed);
@@ -411,9 +371,10 @@ class BuildCommand extends Command
             return;
         }
 
-        $durationSeconds = strtotime($completedAt) - strtotime($startedAt);
+        $start = strtotime($startedAt);
+        $end = strtotime($completedAt);
+        $durationSeconds = ($start !== false && $end !== false) ? max(0, $end - $start) : 0;
 
-        // Update specific task's stats
         foreach ($tasks['tasks'] as &$task) {
             if ($task['id'] === $taskId) {
                 $task['stats'] = [
@@ -429,7 +390,6 @@ class BuildCommand extends Command
         }
         unset($task);
 
-        // Update root-level stats (cumulative)
         $tasks['stats'] = $tasks['stats'] ?? [];
         $tasks['stats']['filesChanged'] = ($tasks['stats']['filesChanged'] ?? 0) + $gitStats['filesChanged'];
         $tasks['stats']['linesAdded'] = ($tasks['stats']['linesAdded'] ?? 0) + $gitStats['linesAdded'];
