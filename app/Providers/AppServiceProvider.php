@@ -15,6 +15,8 @@ use App\Services\ProjectAnalyzer;
 use App\Services\Settings\SettingsLoader;
 use App\Services\Settings\SettingsService;
 use App\Services\Settings\SettingsWriter;
+use App\Tui\DashboardRenderer;
+use App\Tui\SessionRegistry;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -49,5 +51,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(AgentRunner::class);
+        $this->app->singleton(DashboardRenderer::class);
+        $this->app->singleton(SessionRegistry::class);
     }
 }

@@ -7,8 +7,8 @@ namespace App\Services;
 class TaskSelector
 {
     /**
-     * @param  array<array{id: int, status: string, dependencies?: array<int>, priority?: int}>  $tasks
-     * @return array{id: int, status: string, dependencies?: array<int>, priority?: int}|null
+     * @param  array<array{id: int, status: string, title?: string, description?: string, dependencies?: array<int>, priority?: int}>  $tasks
+     * @return array{id: int, status: string, title?: string, description?: string, dependencies?: array<int>, priority?: int}|null
      */
     public function selectNextTask(array $tasks): ?array
     {
@@ -50,9 +50,9 @@ class TaskSelector
     }
 
     /**
-     * @param  array<array{id: int, status: string, dependencies?: array<int>, priority?: int}>  $tasks
+     * @param  array<array{id: int, status: string, title?: string, description?: string, dependencies?: array<int>, priority?: int}>  $tasks
      * @param  array<int, true>  $completedIds
-     * @return array<array{id: int, status: string, dependencies?: array<int>, priority?: int}>
+     * @return array<array{id: int, status: string, title?: string, description?: string, dependencies?: array<int>, priority?: int}>
      */
     public function getAvailableTasks(array $tasks, array $completedIds): array
     {
