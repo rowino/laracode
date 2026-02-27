@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Commands;
 
+use App\Agents\AgentRegistry;
 use App\Enums\BuildMode;
 use App\Services\AgentRunner;
 use App\Services\Settings\SettingsService;
@@ -32,6 +33,7 @@ class BuildCommand extends Command
         private DashboardRenderer $renderer,
         private TaskSelector $taskSelector,
         private SessionRegistry $registry,
+        private AgentRegistry $agentRegistry,
     ) {
         parent::__construct();
     }
@@ -95,7 +97,7 @@ class BuildCommand extends Command
         $lockPath = dirname($realTasksPath ?: $tasksPath).'/index.lock';
         $canonicalTasksPath = $realTasksPath ?: $tasksPath;
 
-        $this->registry->register($canonicalTasksPath, (int) getmypid(), $mode->value, $projectPath);
+        $this->registry->register($canonicalTasksPath, (int) getmypid(), $mode->value, $this->agentRegistry->getDefaultName(), $projectPath);
 
         $this->renderDashboard($tasks, 0, $maxIterations, $startTime, null, $mode);
 
@@ -124,7 +126,7 @@ class BuildCommand extends Command
             $nextTask = $this->taskSelector->selectNextTask($tasks['tasks']);
 
             if ($nextTask === null) {
-                $this->registry->deregister($canonicalTasksPath);
+                $this->registry->markCompleted($canonicalTasksPath);
                 $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, null, $mode, 'All tasks completed!');
                 $this->captureTermwindOutput(fn () => $this->renderer->renderFinalStats($tasks));
 
@@ -169,7 +171,7 @@ class BuildCommand extends Command
             }
         }
 
-        $this->registry->deregister($canonicalTasksPath);
+        $this->registry->markCompleted($canonicalTasksPath);
         $this->renderDashboard($tasks, $iteration, $maxIterations, $startTime, null, $mode, "Reached max iterations ({$maxIterations})");
 
         return self::SUCCESS;

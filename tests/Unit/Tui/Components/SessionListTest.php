@@ -41,7 +41,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -59,7 +59,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -77,7 +77,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -96,7 +96,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -113,7 +113,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/home/user/projects/myproject'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/home/user/projects/myproject'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -133,7 +133,7 @@ describe('session rendering', function () {
         $longPath = '/home/user/very/deeply/nested/directory/structure/that/goes/on/and/on/project';
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => $longPath],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => $longPath],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -141,6 +141,26 @@ describe('session rendering', function () {
         expect($html)->toContain('…')
             ->and($html)->not->toContain($longPath)
             ->and($html)->toContain('project');
+    });
+
+    it('renders mode and agent on line 3', function () {
+        $tasksPath = $this->tempDir.'/tasks.json';
+        file_put_contents($tasksPath, json_encode([
+            'title' => 'Test',
+            'branch' => 'main',
+            'tasks' => [],
+        ]));
+
+        $sessions = [
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
+        ];
+
+        $html = $this->component->render($sessions, 0);
+
+        expect($html)->toContain('Mode:')
+            ->and($html)->toMatch('/text-cyan-400[^>]*>normal</')
+            ->and($html)->toContain('Agent:')
+            ->and($html)->toMatch('/text-cyan-400[^>]*>claude</');
     });
 
     it('renders progress and elapsed time on line 3', function () {
@@ -157,7 +177,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -181,7 +201,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -201,7 +221,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -221,7 +241,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -241,7 +261,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -258,7 +278,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -276,8 +296,8 @@ describe('session rendering', function () {
         file_put_contents($tasksPath2, json_encode(['title' => 'Second', 'branch' => 'dev', 'tasks' => []]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath1, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/a'],
-            ['tasksPath' => $tasksPath2, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/b'],
+            ['tasksPath' => $tasksPath1, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/a'],
+            ['tasksPath' => $tasksPath2, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/b'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -296,7 +316,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -313,7 +333,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -330,7 +350,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -347,7 +367,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -368,7 +388,7 @@ describe('session rendering', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -378,10 +398,70 @@ describe('session rendering', function () {
     });
 });
 
+describe('registry status rendering', function () {
+    it('renders green complete label when registry status is completed', function () {
+        $tasksPath = $this->tempDir.'/tasks.json';
+        file_put_contents($tasksPath, json_encode([
+            'title' => 'Finished Feature',
+            'branch' => 'main',
+            'tasks' => [
+                ['id' => 1, 'status' => 'completed', 'title' => 'Done'],
+                ['id' => 2, 'status' => 'pending', 'title' => 'Skipped'],
+            ],
+        ]));
+
+        $sessions = [
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project', 'status' => 'completed'],
+        ];
+
+        $html = $this->component->render($sessions, 0);
+
+        expect($html)->toMatch('/text-green-400[^>]*>complete</');
+    });
+
+    it('renders red crashed label when PID is dead and status is running', function () {
+        $tasksPath = $this->tempDir.'/tasks.json';
+        file_put_contents($tasksPath, json_encode([
+            'title' => 'Crashed Session',
+            'branch' => 'main',
+            'tasks' => [
+                ['id' => 1, 'status' => 'in_progress', 'title' => 'Was working'],
+            ],
+        ]));
+
+        $sessions = [
+            ['tasksPath' => $tasksPath, 'pid' => 999999999, 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project', 'status' => 'running'],
+        ];
+
+        $html = $this->component->render($sessions, 0);
+
+        expect($html)->toMatch('/text-red-400[^>]*>crashed</');
+    });
+
+    it('uses task-based logic when PID is alive and status is running', function () {
+        $tasksPath = $this->tempDir.'/tasks.json';
+        file_put_contents($tasksPath, json_encode([
+            'title' => 'Active Session',
+            'branch' => 'main',
+            'tasks' => [
+                ['id' => 1, 'status' => 'in_progress', 'title' => 'Working'],
+            ],
+        ]));
+
+        $sessions = [
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project', 'status' => 'running'],
+        ];
+
+        $html = $this->component->render($sessions, 0);
+
+        expect($html)->toMatch('/text-cyan-400[^>]*>active</');
+    });
+});
+
 describe('edge cases', function () {
     it('handles missing tasks file gracefully', function () {
         $sessions = [
-            ['tasksPath' => '/nonexistent/tasks.json', 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => '/nonexistent/tasks.json', 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -395,7 +475,7 @@ describe('edge cases', function () {
         file_put_contents($tasksPath, 'not valid json');
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -408,7 +488,7 @@ describe('edge cases', function () {
         file_put_contents($tasksPath, '');
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -425,7 +505,7 @@ describe('edge cases', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);
@@ -446,7 +526,7 @@ describe('edge cases', function () {
         ]));
 
         $sessions = [
-            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'projectPath' => '/project'],
+            ['tasksPath' => $tasksPath, 'pid' => getmypid(), 'startedAt' => date('c'), 'mode' => 'normal', 'agent' => 'claude', 'projectPath' => '/project'],
         ];
 
         $html = $this->component->render($sessions, 0);

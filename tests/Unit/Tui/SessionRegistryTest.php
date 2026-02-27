@@ -22,7 +22,7 @@ afterEach(function () {
 
 describe('register', function () {
     it('creates registry file and adds session entry', function () {
-        $this->registry->register('/path/to/tasks.json', getmypid(), 'normal', '/project');
+        $this->registry->register('/path/to/tasks.json', getmypid(), 'normal', 'claude', '/project');
 
         expect(file_exists($this->registryPath))->toBeTrue();
 
@@ -32,13 +32,14 @@ describe('register', function () {
             ->and($data['sessions'][0]['tasksPath'])->toBe('/path/to/tasks.json')
             ->and($data['sessions'][0]['pid'])->toBe(getmypid())
             ->and($data['sessions'][0]['mode'])->toBe('normal')
+            ->and($data['sessions'][0]['agent'])->toBe('claude')
             ->and($data['sessions'][0]['projectPath'])->toBe('/project')
             ->and($data['sessions'][0]['startedAt'])->toBeString();
     });
 
     it('adds multiple sessions', function () {
-        $this->registry->register('/path/a/tasks.json', getmypid(), 'normal', '/project-a');
-        $this->registry->register('/path/b/tasks.json', getmypid(), 'yolo', '/project-b');
+        $this->registry->register('/path/a/tasks.json', getmypid(), 'normal', 'claude', '/project-a');
+        $this->registry->register('/path/b/tasks.json', getmypid(), 'yolo', 'claude', '/project-b');
 
         $data = json_decode(file_get_contents($this->registryPath), true);
 
@@ -48,8 +49,8 @@ describe('register', function () {
     });
 
     it('replaces existing entry with same tasksPath', function () {
-        $this->registry->register('/path/tasks.json', 100, 'normal', '/project');
-        $this->registry->register('/path/tasks.json', 200, 'yolo', '/project-new');
+        $this->registry->register('/path/tasks.json', 100, 'normal', 'claude', '/project');
+        $this->registry->register('/path/tasks.json', 200, 'yolo', 'claude', '/project-new');
 
         $data = json_decode(file_get_contents($this->registryPath), true);
 
@@ -60,10 +61,88 @@ describe('register', function () {
     });
 });
 
+describe('register status', function () {
+    it('includes status running in session entry', function () {
+        $this->registry->register('/path/to/tasks.json', getmypid(), 'normal', 'claude', '/project');
+
+        $data = json_decode(file_get_contents($this->registryPath), true);
+
+        expect($data['sessions'][0]['status'])->toBe('running');
+    });
+});
+
+describe('markCompleted', function () {
+    it('sets status to completed and adds completedAt timestamp', function () {
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
+
+        $this->registry->markCompleted('/path/tasks.json');
+
+        $data = json_decode(file_get_contents($this->registryPath), true);
+
+        expect($data['sessions'][0]['status'])->toBe('completed')
+            ->and($data['sessions'][0]['completedAt'])->toBeString();
+    });
+
+    it('does nothing when tasksPath not found', function () {
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
+
+        $this->registry->markCompleted('/nonexistent/tasks.json');
+
+        $data = json_decode(file_get_contents($this->registryPath), true);
+
+        expect($data['sessions'])->toHaveCount(1)
+            ->and($data['sessions'][0]['status'])->toBe('running');
+    });
+});
+
+describe('getSessions', function () {
+    it('returns sessions with live PIDs as running', function () {
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
+
+        $sessions = $this->registry->getSessions();
+
+        expect($sessions)->toHaveCount(1)
+            ->and($sessions[0]['status'])->toBe('running');
+    });
+
+    it('returns completed sessions even with dead PIDs', function () {
+        $this->registry->register('/path/tasks.json', 999999, 'normal', 'claude', '/project');
+        $this->registry->markCompleted('/path/tasks.json');
+
+        $sessions = $this->registry->getSessions();
+
+        expect($sessions)->toHaveCount(1)
+            ->and($sessions[0]['status'])->toBe('completed');
+    });
+
+    it('returns crashed sessions with dead PID and status running', function () {
+        $this->registry->register('/path/tasks.json', 999999, 'normal', 'claude', '/project');
+
+        $sessions = $this->registry->getSessions();
+
+        expect($sessions)->toHaveCount(1)
+            ->and($sessions[0]['status'])->toBe('crashed');
+    });
+
+    it('returns mix of running completed and crashed', function () {
+        $this->registry->register('/path/live.json', getmypid(), 'normal', 'claude', '/live');
+        $this->registry->register('/path/completed.json', 999998, 'normal', 'claude', '/completed');
+        $this->registry->markCompleted('/path/completed.json');
+        $this->registry->register('/path/crashed.json', 999999, 'normal', 'claude', '/crashed');
+
+        $sessions = $this->registry->getSessions();
+        $statuses = array_column($sessions, 'status');
+        sort($statuses);
+
+        expect($sessions)->toHaveCount(3)
+            ->and($statuses)->toBe(['completed', 'crashed', 'running']);
+    });
+});
+
 describe('deregister', function () {
     it('removes correct session by tasksPath', function () {
-        $this->registry->register('/path/a/tasks.json', getmypid(), 'normal', '/project-a');
-        $this->registry->register('/path/b/tasks.json', getmypid(), 'yolo', '/project-b');
+        $this->registry->register('/path/a/tasks.json', getmypid(), 'normal', 'claude', '/project-a');
+        $this->registry->register('/path/b/tasks.json', getmypid(), 'yolo', 'claude', '/project-b');
 
         $this->registry->deregister('/path/a/tasks.json');
 
@@ -74,7 +153,7 @@ describe('deregister', function () {
     });
 
     it('does nothing when tasksPath not found', function () {
-        $this->registry->register('/path/tasks.json', getmypid(), 'normal', '/project');
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
 
         $this->registry->deregister('/nonexistent/tasks.json');
 
@@ -94,7 +173,7 @@ describe('deregister', function () {
 
 describe('getActiveSessions', function () {
     it('returns sessions with live PIDs', function () {
-        $this->registry->register('/path/tasks.json', getmypid(), 'normal', '/project');
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
 
         $active = $this->registry->getActiveSessions();
 
@@ -103,8 +182,8 @@ describe('getActiveSessions', function () {
     });
 
     it('filters out dead PIDs', function () {
-        $this->registry->register('/path/live.json', getmypid(), 'normal', '/project-live');
-        $this->registry->register('/path/dead.json', 999999, 'yolo', '/project-dead');
+        $this->registry->register('/path/live.json', getmypid(), 'normal', 'claude', '/project-live');
+        $this->registry->register('/path/dead.json', 999999, 'yolo', 'claude', '/project-dead');
 
         $active = $this->registry->getActiveSessions();
 
@@ -117,8 +196,8 @@ describe('getActiveSessions', function () {
     });
 
     it('returns empty array when all PIDs are dead', function () {
-        $this->registry->register('/path/a.json', 999998, 'normal', '/a');
-        $this->registry->register('/path/b.json', 999999, 'normal', '/b');
+        $this->registry->register('/path/a.json', 999998, 'normal', 'claude', '/a');
+        $this->registry->register('/path/b.json', 999999, 'normal', 'claude', '/b');
 
         expect($this->registry->getActiveSessions())->toBe([]);
     });
@@ -126,9 +205,9 @@ describe('getActiveSessions', function () {
 
 describe('cleanup', function () {
     it('removes all dead PID entries', function () {
-        $this->registry->register('/path/live.json', getmypid(), 'normal', '/project-live');
-        $this->registry->register('/path/dead1.json', 999998, 'normal', '/dead1');
-        $this->registry->register('/path/dead2.json', 999999, 'yolo', '/dead2');
+        $this->registry->register('/path/live.json', getmypid(), 'normal', 'claude', '/project-live');
+        $this->registry->register('/path/dead1.json', 999998, 'normal', 'claude', '/dead1');
+        $this->registry->register('/path/dead2.json', 999999, 'yolo', 'claude', '/dead2');
 
         $this->registry->cleanup();
 
@@ -139,14 +218,28 @@ describe('cleanup', function () {
     });
 
     it('results in empty sessions when all PIDs are dead', function () {
-        $this->registry->register('/path/a.json', 999998, 'normal', '/a');
-        $this->registry->register('/path/b.json', 999999, 'normal', '/b');
+        $this->registry->register('/path/a.json', 999998, 'normal', 'claude', '/a');
+        $this->registry->register('/path/b.json', 999999, 'normal', 'claude', '/b');
 
         $this->registry->cleanup();
 
         $data = json_decode(file_get_contents($this->registryPath), true);
 
         expect($data['sessions'])->toHaveCount(0);
+    });
+
+    it('preserves completed sessions with dead PIDs', function () {
+        $this->registry->register('/path/completed.json', 999998, 'normal', 'claude', '/completed');
+        $this->registry->markCompleted('/path/completed.json');
+        $this->registry->register('/path/crashed.json', 999999, 'normal', 'claude', '/crashed');
+
+        $this->registry->cleanup();
+
+        $data = json_decode(file_get_contents($this->registryPath), true);
+
+        expect($data['sessions'])->toHaveCount(1)
+            ->and($data['sessions'][0]['tasksPath'])->toBe('/path/completed.json')
+            ->and($data['sessions'][0]['status'])->toBe('completed');
     });
 });
 
@@ -170,7 +263,7 @@ describe('edge cases', function () {
     it('recovers from corrupt JSON on write operations', function () {
         file_put_contents($this->registryPath, 'corrupt data');
 
-        $this->registry->register('/path/tasks.json', getmypid(), 'normal', '/project');
+        $this->registry->register('/path/tasks.json', getmypid(), 'normal', 'claude', '/project');
 
         $data = json_decode(file_get_contents($this->registryPath), true);
 

@@ -10,7 +10,7 @@ namespace App\Tui\Components;
 class SessionList
 {
     /**
-     * @param  array<array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}>  $sessions
+     * @param  array<array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status?: string, completedAt?: string}>  $sessions
      */
     public function render(array $sessions, int $selectedIndex): string
     {
@@ -33,7 +33,7 @@ class SessionList
     }
 
     /**
-     * @param  array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}  $session
+     * @param  array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status?: string, completedAt?: string}  $session
      */
     private function renderRow(array $session, bool $selected): string
     {
@@ -57,14 +57,17 @@ class SessionList
             : '';
 
         $activeTaskName = $this->activeTaskName($tasks);
-        $statusLabel = $this->sessionStatus($tasks);
+        $registryStatus = $session['status'] ?? 'running';
+        $statusLabel = $this->sessionStatus($tasks, $registryStatus, (int) $session['pid']);
 
         $selectedClass = $selected ? 'text-white' : '';
 
         $line1 = "{$selector} {$title}";
         $line2 = "  {$path}{$branchHtml}";
         $tasksColor = ($total > 0 && $completed === $total) ? 'text-green-400' : 'text-yellow-400';
-        $line3 = "  <span class=\"text-gray\">Tasks:</span> <span class=\"{$tasksColor}\">{$completed}/{$total}</span><span class=\"ml-5 text-gray\">Status:</span> <span>{$statusLabel}</span><span class=\"ml-5 text-gray\">Elapsed:</span> {$elapsed}";
+        $modeLabel = htmlspecialchars($session['mode']);
+        $agentLabel = htmlspecialchars($session['agent']);
+        $line3 = "  <span class=\"text-gray\">Mode:</span> <span class=\"text-cyan-400\">{$modeLabel}</span><span class=\"ml-3 text-gray\">Agent:</span> <span class=\"text-cyan-400\">{$agentLabel}</span><span class=\"ml-3 text-gray\">Tasks:</span> <span class=\"{$tasksColor}\">{$completed}/{$total}</span><span class=\"ml-3 text-gray\">Status:</span> <span>{$statusLabel}</span><span class=\"ml-3 text-gray\">Elapsed:</span> {$elapsed}";
 
         $html = "<div class=\"{$selectedClass} px-2\">{$line1}</div>"
             ."<div class=\"{$selectedClass} px-2\">{$line2}</div>";
@@ -128,8 +131,16 @@ class SessionList
     /**
      * @param  array<array{id: int, status: string, title?: string}>  $tasks
      */
-    private function sessionStatus(array $tasks): string
+    private function sessionStatus(array $tasks, string $registryStatus, int $pid): string
     {
+        if ($registryStatus === 'completed') {
+            return '<span class="text-green-400">complete</span>';
+        }
+
+        if (! $this->isProcessAlive($pid)) {
+            return '<span class="text-red-400">crashed</span>';
+        }
+
         foreach ($tasks as $task) {
             if ($task['status'] === 'in_progress') {
                 return '<span class="text-cyan-400">active</span>';
@@ -141,6 +152,19 @@ class SessionList
         }
 
         return '<span class="text-cyan-400">running</span>';
+    }
+
+    private function isProcessAlive(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+
+        if (! function_exists('posix_kill')) {
+            return file_exists("/proc/$pid");
+        }
+
+        return posix_kill($pid, 0);
     }
 
     /**

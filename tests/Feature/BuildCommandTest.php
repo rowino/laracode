@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Commands\BuildCommand;
 use App\Services\AgentRunner;
+use App\Tui\SessionRegistry;
 use Illuminate\Support\Facades\File;
 
 function mockAgentRunner(): void
@@ -16,10 +17,19 @@ function mockAgentRunner(): void
     (new ReflectionProperty(BuildCommand::class, 'agentRunner'))->setValue($command, $mock);
 }
 
+function isolateSessionRegistry(string $registryPath): void
+{
+    $kernel = app(Illuminate\Contracts\Console\Kernel::class);
+    $command = (new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel)->find('build');
+    (new ReflectionProperty(BuildCommand::class, 'registry'))->setValue($command, new SessionRegistry($registryPath));
+}
+
 beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-build-test-'.uniqid();
     mkdir($this->testPath.'/.laracode/specs/test-feature', 0755, true);
     mkdir($this->testPath.'/.claude', 0755, true);
+
+    isolateSessionRegistry($this->testPath.'/.laracode/sessions.json');
 });
 
 afterEach(function () {

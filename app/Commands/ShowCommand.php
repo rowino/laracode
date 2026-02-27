@@ -12,6 +12,7 @@ use App\Tui\Components\TaskDetail;
 use App\Tui\Components\TaskList;
 use App\Tui\DashboardState;
 use App\Tui\SessionRegistry;
+use App\Tui\Terminal\TerminalFocuser;
 use LaravelZero\Framework\Commands\Command;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -31,12 +32,14 @@ class ShowCommand extends Command
 
     private int $selectedIndex = 0;
 
-    /** @var array<array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}> */
+    /** @var array<array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status: string, completedAt?: string}> */
     private array $sessions = [];
 
     private bool $running = true;
 
     private int $exitCode = self::SUCCESS;
+
+    private ?string $flashMessage = null;
 
     public function __construct(
         private SessionRegistry $registry,
@@ -46,13 +49,14 @@ class ShowCommand extends Command
         private TaskDetail $taskDetail,
         private ProgressBar $progressBar,
         private StatusBar $statusBar,
+        private TerminalFocuser $terminalFocuser,
     ) {
         parent::__construct();
     }
 
     public function handle(): int
     {
-        $this->sessions = $this->registry->getActiveSessions();
+        $this->sessions = $this->registry->getSessions();
 
         $this->setupTerminal();
         $this->registerSignalHandlers();
@@ -73,7 +77,7 @@ class ShowCommand extends Command
 
                 $now = time();
                 if ($now - $lastRefresh >= 2) {
-                    $this->sessions = $this->registry->getActiveSessions();
+                    $this->sessions = $this->registry->getSessions();
                     $sessionCount = count($this->sessions);
                     if ($this->selectedIndex >= $sessionCount) {
                         $this->selectedIndex = max(0, $sessionCount - 1);
@@ -161,6 +165,8 @@ class ShowCommand extends Command
             'q' => 'quit',
             'j' => 'down',
             'k' => 'up',
+            'd' => 'dismiss',
+            'f' => 'focus',
             "\n", "\r" => 'enter',
             "\x7f" => 'backspace',
             default => null,
@@ -188,6 +194,8 @@ class ShowCommand extends Command
             'up' => $this->moveSelection(-1),
             'down' => $this->moveSelection(1),
             'enter' => $this->enterDetailView(),
+            'dismiss' => $this->dismissSession(),
+            'focus' => $this->focusSession(),
             default => false,
         };
     }
@@ -196,6 +204,7 @@ class ShowCommand extends Command
     {
         return match ($key) {
             'esc', 'backspace' => $this->backToList(),
+            'dismiss' => $this->dismissSession(),
             default => false,
         };
     }
@@ -235,6 +244,69 @@ class ShowCommand extends Command
         return true;
     }
 
+    private function dismissSession(): bool
+    {
+        if (! isset($this->sessions[$this->selectedIndex])) {
+            return false;
+        }
+
+        $session = $this->sessions[$this->selectedIndex];
+        $isDismissable = $session['status'] === 'completed'
+            || $session['status'] === 'crashed'
+            || ! $this->isProcessAlive($session['pid']);
+
+        if (! $isDismissable) {
+            return false;
+        }
+
+        $this->registry->deregister($session['tasksPath']);
+        $this->sessions = $this->registry->getSessions();
+
+        $sessionCount = count($this->sessions);
+        if ($this->selectedIndex >= $sessionCount) {
+            $this->selectedIndex = max(0, $sessionCount - 1);
+        }
+
+        if ($this->view === 'detail' && $this->sessions === []) {
+            $this->view = 'list';
+        }
+
+        $this->flashMessage = 'Session dismissed';
+
+        return true;
+    }
+
+    private function focusSession(): bool
+    {
+        if (! isset($this->sessions[$this->selectedIndex])) {
+            return false;
+        }
+
+        $session = $this->sessions[$this->selectedIndex];
+
+        if ($session['status'] !== 'running' || ! $this->isProcessAlive($session['pid'])) {
+            return false;
+        }
+
+        $result = $this->terminalFocuser->focus($session['pid']);
+        $this->flashMessage = $result->message;
+
+        return true;
+    }
+
+    private function isProcessAlive(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+
+        if (! function_exists('posix_kill')) {
+            return file_exists("/proc/$pid");
+        }
+
+        return posix_kill($pid, 0);
+    }
+
     private function renderCurrentView(): void
     {
         ob_start();
@@ -263,10 +335,22 @@ class ShowCommand extends Command
             </div>
         HTML;
 
-        $sessionListHtml = $this->sessionList->render($this->sessions, $this->selectedIndex);
-        $keyHelpHtml = $this->keyHelp->render('list');
+        $canDismiss = false;
+        $canFocus = false;
+        if (isset($this->sessions[$this->selectedIndex])) {
+            $selected = $this->sessions[$this->selectedIndex];
+            $canDismiss = $selected['status'] === 'completed'
+                || $selected['status'] === 'crashed'
+                || ! $this->isProcessAlive($selected['pid']);
+            $canFocus = $selected['status'] === 'running' && $this->isProcessAlive($selected['pid']);
+        }
 
-        $this->renderHtml("<div>{$header}{$sessionListHtml}{$keyHelpHtml}</div>");
+        $sessionListHtml = $this->sessionList->render($this->sessions, $this->selectedIndex);
+        $keyHelpHtml = $this->keyHelp->render('list', $canDismiss, $canFocus);
+
+        $flashHtml = $this->consumeFlashHtml();
+
+        $this->renderHtml("<div>{$header}{$sessionListHtml}{$flashHtml}{$keyHelpHtml}</div>");
     }
 
     private function renderDetailView(): void
@@ -304,6 +388,12 @@ class ShowCommand extends Command
             </div>
         HTML;
 
+        $canDismiss = $session['status'] === 'completed'
+            || $session['status'] === 'crashed'
+            || ! $this->isProcessAlive($session['pid']);
+
+        $flashHtml = $this->consumeFlashHtml();
+
         $html = '<div>'
             .implode("\n", [
                 $header,
@@ -312,15 +402,28 @@ class ShowCommand extends Command
                 '<hr>',
                 $this->taskDetail->render($state),
                 $this->statusBar->render($state),
-                $this->keyHelp->render('detail'),
+                $flashHtml,
+                $this->keyHelp->render('detail', $canDismiss),
             ])
             .'</div>';
 
         $this->renderHtml($html);
     }
 
+    private function consumeFlashHtml(): string
+    {
+        if ($this->flashMessage === null) {
+            return '';
+        }
+
+        $message = htmlspecialchars($this->flashMessage);
+        $this->flashMessage = null;
+
+        return "<div class=\"px-2 text-yellow-400\">{$message}</div>";
+    }
+
     /**
-     * @param  array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}  $session
+     * @param  array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status: string, completedAt?: string}  $session
      */
     private function buildDashboardState(array $session): ?DashboardState
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Commands\BuildCommand;
 use App\Services\AgentRunner;
 use App\Services\Settings\SettingsService;
+use App\Tui\SessionRegistry;
 use Illuminate\Support\Facades\File;
 
 function mockAgentRunnerForModeTest(): void
@@ -17,10 +18,19 @@ function mockAgentRunnerForModeTest(): void
     (new ReflectionProperty(BuildCommand::class, 'agentRunner'))->setValue($command, $mock);
 }
 
+function isolateSessionRegistryForModeTest(string $registryPath): void
+{
+    $kernel = app(Illuminate\Contracts\Console\Kernel::class);
+    $command = (new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel)->find('build');
+    (new ReflectionProperty(BuildCommand::class, 'registry'))->setValue($command, new SessionRegistry($registryPath));
+}
+
 beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-mode-test-'.uniqid();
     mkdir($this->testPath.'/.laracode/specs/test-feature', 0755, true);
     mkdir($this->testPath.'/.claude', 0755, true);
+
+    isolateSessionRegistryForModeTest($this->testPath.'/.laracode/sessions.json');
 
     // Create valid tasks.json
     $this->tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';

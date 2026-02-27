@@ -51,4 +51,56 @@ describe('KeyHelp', function () {
         expect($html)->not->toContain('Navigate')
             ->and($html)->not->toContain('Details');
     });
+
+    it('shows dismiss hint in list view when canDismiss is true', function () {
+        $html = (new KeyHelp)->render('list', canDismiss: true);
+
+        expect($html)->toContain('d')
+            ->and($html)->toContain('Dismiss');
+    });
+
+    it('hides dismiss hint in list view when canDismiss is false', function () {
+        $html = (new KeyHelp)->render('list', canDismiss: false);
+
+        expect($html)->not->toContain('Dismiss');
+    });
+
+    it('shows focus hint in list view when canFocus is true', function () {
+        $html = (new KeyHelp)->render('list', canFocus: true);
+
+        expect($html)->toContain('f')
+            ->and($html)->toContain('Focus');
+    });
+
+    it('hides focus hint in list view when canFocus is false', function () {
+        $html = (new KeyHelp)->render('list', canFocus: false);
+
+        expect($html)->not->toContain('Focus');
+    });
+
+    it('shows dismiss hint in detail view when canDismiss is true', function () {
+        $html = (new KeyHelp)->render('detail', canDismiss: true);
+
+        expect($html)->toContain('d')
+            ->and($html)->toContain('Dismiss');
+    });
+
+    it('hides dismiss hint in detail view when canDismiss is false', function () {
+        $html = (new KeyHelp)->render('detail');
+
+        expect($html)->not->toContain('Dismiss');
+    });
+
+    it('does not show focus hint in detail view even when canFocus is true', function () {
+        $html = (new KeyHelp)->render('detail', canFocus: true);
+
+        expect($html)->not->toContain('Focus');
+    });
+
+    it('preserves default behavior with no extra params', function () {
+        $html = (new KeyHelp)->render('list');
+
+        expect($html)->not->toContain('Dismiss')
+            ->and($html)->not->toContain('Focus');
+    });
 });

@@ -9,11 +9,11 @@ namespace App\Tui\Components;
  */
 class KeyHelp
 {
-    public function render(string $view): string
+    public function render(string $view, bool $canDismiss = false, bool $canFocus = false): string
     {
         $hints = match ($view) {
-            'detail' => $this->detailHints(),
-            default => $this->listHints(),
+            'detail' => $this->detailHints($canDismiss),
+            default => $this->listHints($canDismiss, $canFocus),
         };
 
         return <<<HTML
@@ -23,19 +23,40 @@ class KeyHelp
         HTML;
     }
 
-    private function listHints(): string
+    private function listHints(bool $canDismiss, bool $canFocus): string
     {
-        return '<span class="text-cyan-400">↑↓</span> Navigate'
+        $hints = '<span class="text-cyan-400">↑↓</span> Navigate'
             .'<span class="mx-8"> </span>'
-            .'<span class="text-cyan-400">Enter</span> Details'
-            .'<span class="mx-8"> </span>'
+            .'<span class="text-cyan-400">Enter</span> Details';
+
+        if ($canDismiss) {
+            $hints .= '<span class="mx-8"> </span>'
+                .'<span class="text-cyan-400">d</span> Dismiss';
+        }
+
+        if ($canFocus) {
+            $hints .= '<span class="mx-8"> </span>'
+                .'<span class="text-cyan-400">f</span> Focus';
+        }
+
+        $hints .= '<span class="mx-8"> </span>'
             .'<span class="text-cyan-400">q</span> Quit';
+
+        return $hints;
     }
 
-    private function detailHints(): string
+    private function detailHints(bool $canDismiss): string
     {
-        return '<span class="text-cyan-400">Esc</span> Back'
-            .'<span class="mx-8"> </span>'
+        $hints = '<span class="text-cyan-400">Esc</span> Back';
+
+        if ($canDismiss) {
+            $hints .= '<span class="mx-8"> </span>'
+                .'<span class="text-cyan-400">d</span> Dismiss';
+        }
+
+        $hints .= '<span class="mx-8"> </span>'
             .'<span class="text-cyan-400">q</span> Quit';
+
+        return $hints;
     }
 }

@@ -23,9 +23,9 @@ class SessionRegistry
         $this->registryPath = $registryPath ?? $dir.'/sessions.json';
     }
 
-    public function register(string $tasksPath, int $pid, string $mode, string $projectPath): void
+    public function register(string $tasksPath, int $pid, string $mode, string $agent, string $projectPath): void
     {
-        $this->withLock(function (array &$data) use ($tasksPath, $pid, $mode, $projectPath) {
+        $this->withLock(function (array &$data) use ($tasksPath, $pid, $mode, $agent, $projectPath) {
             $data['sessions'] = array_values(array_filter(
                 $data['sessions'] ?? [],
                 fn (array $session) => $session['tasksPath'] !== $tasksPath
@@ -36,9 +36,48 @@ class SessionRegistry
                 'pid' => $pid,
                 'startedAt' => date('c'),
                 'mode' => $mode,
+                'agent' => $agent,
                 'projectPath' => $projectPath,
+                'status' => 'running',
             ];
         });
+    }
+
+    public function markCompleted(string $tasksPath): void
+    {
+        $this->withLock(function (array &$data) use ($tasksPath) {
+            if (! isset($data['sessions'])) {
+                return;
+            }
+
+            foreach ($data['sessions'] as $index => $session) {
+                if ($session['tasksPath'] === $tasksPath) {
+                    $data['sessions'][$index]['status'] = 'completed';
+                    $data['sessions'][$index]['completedAt'] = date('c');
+
+                    return;
+                }
+            }
+        });
+    }
+
+    /**
+     * @return array<array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status: string, completedAt?: string}>
+     */
+    public function getSessions(): array
+    {
+        $data = $this->readRegistry();
+
+        return array_values(array_map(
+            function (array $session): array {
+                if ($session['status'] !== 'completed' && ! $this->isProcessAlive((int) $session['pid'])) {
+                    $session['status'] = 'crashed';
+                }
+
+                return $session;
+            },
+            $data['sessions'] ?? []
+        ));
     }
 
     public function deregister(string $tasksPath): void
@@ -52,7 +91,7 @@ class SessionRegistry
     }
 
     /**
-     * @return array<array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}>
+     * @return array<array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status: string, completedAt?: string}>
      */
     public function getActiveSessions(): array
     {
@@ -69,7 +108,8 @@ class SessionRegistry
         $this->withLock(function (array &$data) {
             $data['sessions'] = array_values(array_filter(
                 $data['sessions'] ?? [],
-                fn (array $session) => $this->isProcessAlive((int) $session['pid'])
+                fn (array $session) => $session['status'] === 'completed'
+                    || $this->isProcessAlive((int) $session['pid'])
             ));
         });
     }
@@ -80,7 +120,7 @@ class SessionRegistry
     }
 
     /**
-     * @return array{sessions?: array<array{tasksPath: string, pid: int, startedAt: string, mode: string, projectPath: string}>}
+     * @return array{sessions?: array<array{tasksPath: string, pid: int, startedAt: string, mode: string, agent: string, projectPath: string, status: string, completedAt?: string}>}
      */
     private function readRegistry(): array
     {
