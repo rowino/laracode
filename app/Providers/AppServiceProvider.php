@@ -12,8 +12,17 @@ use App\Agents\CodexAgent;
 use App\Agents\HappyAgent;
 use App\Agents\JunieAgent;
 use App\Agents\OpenCodeAgent;
+use App\Editors\CursorEditor;
+use App\Editors\EditorDetector;
+use App\Editors\EditorRegistry;
+use App\Editors\PhpStormEditor;
+use App\Editors\SublimeEditor;
+use App\Editors\VsCodeEditor;
+use App\Editors\WindsurfEditor;
+use App\Editors\ZedEditor;
 use App\Init\Handlers\AgentFilesHandler;
 use App\Init\Handlers\AgentSetupHandler;
+use App\Init\Handlers\EditorSetupHandler;
 use App\Init\Handlers\WatchConfigHandler;
 use App\Init\Handlers\WorktreeSetupHandler;
 use App\Init\InitPipeline;
@@ -31,6 +40,8 @@ use App\Services\Settings\SettingsLoader;
 use App\Services\Settings\SettingsService;
 use App\Services\Settings\SettingsWriter;
 use Illuminate\Console\Application as Artisan;
+use App\Tui\DashboardRenderer;
+use App\Tui\SessionRegistry;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -97,17 +108,34 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(AgentRunner::class);
 
+        $this->app->singleton(EditorRegistry::class, function () {
+            $registry = new EditorRegistry;
+
+            $registry->register(new VsCodeEditor);
+            $registry->register(new CursorEditor);
+            $registry->register(new PhpStormEditor);
+            $registry->register(new ZedEditor);
+            $registry->register(new SublimeEditor);
+            $registry->register(new WindsurfEditor);
+
+            return $registry;
+        });
+        $this->app->singleton(EditorDetector::class);
+
         $this->app->singleton(InitPipeline::class, function ($app) {
             $pipeline = new InitPipeline(
                 $app->make(AgentRegistry::class),
             );
 
             $pipeline->register($app->make(AgentSetupHandler::class));
+            $pipeline->register($app->make(EditorSetupHandler::class));
             $pipeline->register($app->make(WatchConfigHandler::class));
             $pipeline->register($app->make(WorktreeSetupHandler::class));
             $pipeline->register($app->make(AgentFilesHandler::class));
 
             return $pipeline;
         });
+        $this->app->singleton(DashboardRenderer::class);
+        $this->app->singleton(SessionRegistry::class);
     }
 }

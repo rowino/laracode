@@ -6,7 +6,9 @@ use App\Agents\AgentDetector;
 use App\Agents\AgentInterface;
 use App\Agents\AgentRegistry;
 use App\Init\Handlers\AgentSetupHandler;
+use App\Init\HasBootstrapPrompts;
 use App\Init\InitContext;
+use App\Init\InitHandler;
 use App\Services\Settings\SettingsWriter;
 
 beforeEach(function () {
@@ -26,6 +28,11 @@ function agentSetupCtx(Mockery\MockInterface $sw, bool $firstTime = true): InitC
         settingsWriter: $sw,
     );
 }
+
+it('implements InitHandler and HasBootstrapPrompts', function () {
+    expect($this->handler)->toBeInstanceOf(InitHandler::class)
+        ->and($this->handler)->toBeInstanceOf(HasBootstrapPrompts::class);
+});
 
 it('has name agent_setup and priority 10', function () {
     expect($this->handler->name())->toBe('agent_setup')

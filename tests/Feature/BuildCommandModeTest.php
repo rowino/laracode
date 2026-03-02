@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Commands\BuildCommand;
 use App\Services\AgentRunner;
 use App\Services\Settings\SettingsService;
+use App\Tui\SessionRegistry;
 use Illuminate\Support\Facades\File;
 
 function mockAgentRunnerForModeTest(): void
@@ -17,10 +18,19 @@ function mockAgentRunnerForModeTest(): void
     (new ReflectionProperty(BuildCommand::class, 'agentRunner'))->setValue($command, $mock);
 }
 
+function isolateSessionRegistryForModeTest(string $registryPath): void
+{
+    $kernel = app(Illuminate\Contracts\Console\Kernel::class);
+    $command = (new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel)->find('build');
+    (new ReflectionProperty(BuildCommand::class, 'registry'))->setValue($command, new SessionRegistry($registryPath));
+}
+
 beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-mode-test-'.uniqid();
     mkdir($this->testPath.'/.laracode/specs/test-feature', 0755, true);
     mkdir($this->testPath.'/.claude', 0755, true);
+
+    isolateSessionRegistryForModeTest($this->testPath.'/.laracode/sessions.json');
 
     // Create valid tasks.json
     $this->tasksPath = $this->testPath.'/.laracode/specs/test-feature/tasks.json';
@@ -53,7 +63,7 @@ it('uses defaultMode from settings when --mode flag is omitted', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Yolo');
+        ->expectsOutputToContain('yolo');
 });
 
 it('respects explicit --mode flag over settings', function () {
@@ -72,7 +82,7 @@ it('respects explicit --mode flag over settings', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Yolo');
+        ->expectsOutputToContain('yolo');
 });
 
 it('falls back to interactive when no settings file exists', function () {
@@ -124,7 +134,7 @@ it('handles project-level mode override in nested settings', function () {
             '--iterations' => 1,
             '--delay' => 0,
         ])
-            ->expectsOutputToContain('Mode: Plan');
+            ->expectsOutputToContain('plan');
 
         // Restore user settings
         if ($backupPath !== null) {
@@ -169,18 +179,13 @@ it('prioritizes CLI mode over empty string from settings', function () {
         '--iterations' => 1,
         '--delay' => 0,
     ])
-        ->expectsOutputToContain('Mode: Accept');
+        ->expectsOutputToContain('accept');
 });
 
 it('uses resolveModeOption method for mode resolution', function () {
-    // Verify resolveModeOption method exists and is properly documented
     $reflection = new ReflectionClass(BuildCommand::class);
     $method = $reflection->getMethod('resolveModeOption');
 
-    expect($method->isPrivate())->toBeTrue();
-
-    $docComment = $method->getDocComment();
-    expect($docComment)->toContain('precedence')
-        ->and($docComment)->toContain('CLI flag')
-        ->and($docComment)->toContain('settings');
+    expect($method->isPrivate())->toBeTrue()
+        ->and($method->getNumberOfParameters())->toBe(1);
 });

@@ -21,6 +21,20 @@
             "**/.DS_Store"
         ]
     },
+    "testing": {
+        "commands": [
+            "composer test",
+            "composer checks"
+        ]
+    },
+    "linting": {
+        "commands": [
+            "composer lint",
+            "composer phpstan"
+        ]
+    },
+    "worktrees": {
+        "defaultSourceBranch": "master"
+    },
     "defaultMode": "yolo"
-    }
 }

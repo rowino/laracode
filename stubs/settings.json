@@ -1,4 +1,7 @@
 {
+    "editor": {
+        "default": ""
+    },
     "watch": {
         "paths": [],
         "mode": "interactive",

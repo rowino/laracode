@@ -39,6 +39,7 @@ class InitPipeline
     public function run(InitContext $ctx): void
     {
         $this->runAgentSelection($ctx);
+        $this->runAdditionalBootstrap($ctx);
         $this->runAgentSession($ctx);
         $this->runApplyPhase($ctx);
     }
@@ -54,22 +55,50 @@ class InitPipeline
             return;
         }
 
-        if ($agentHandler instanceof Handlers\AgentSetupHandler) {
-            /** @var PromptRunner $promptRunner */
-            $promptRunner = app(PromptRunner::class);
-            $maxRounds = 10;
+        $this->runBootstrapPrompts($agentHandler, $ctx);
 
-            for ($i = 0; $i < $maxRounds; $i++) {
-                $prompts = $agentHandler->getBootstrapPrompts($ctx);
+        $agentHandler->apply($ctx);
+        $this->completed[$agentHandler->name()] = true;
+    }
 
-                if (empty($prompts)) {
-                    break;
-                }
-
-                $responses = $promptRunner->runPrompts($prompts, ['projectPath' => $ctx->projectPath]);
-                $agentHandler->processBootstrapResponses($ctx, $responses);
+    private function runAdditionalBootstrap(InitContext $ctx): void
+    {
+        foreach ($this->handlers as $handler) {
+            if ($this->isCompleted($handler)) {
+                continue;
             }
+
+            if (! $handler instanceof HasBootstrapPrompts) {
+                continue;
+            }
+
+            $this->runBootstrapPrompts($handler, $ctx);
+            $handler->apply($ctx);
+            $this->completed[$handler->name()] = true;
         }
+    }
+
+    private function runBootstrapPrompts(InitHandler $handler, InitContext $ctx): void
+    {
+        if (! $handler instanceof HasBootstrapPrompts) {
+            return;
+        }
+
+        /** @var PromptRunner $promptRunner */
+        $promptRunner = app(PromptRunner::class);
+        $maxRounds = 10;
+
+        for ($i = 0; $i < $maxRounds; $i++) {
+            $prompts = $handler->getBootstrapPrompts($ctx);
+
+            if (empty($prompts)) {
+                break;
+            }
+
+            $responses = $promptRunner->runPrompts($prompts, ['projectPath' => $ctx->projectPath]);
+            $handler->processBootstrapResponses($ctx, $responses);
+        }
+    }
 
         $agentHandler->apply($ctx);
         $this->completed[$agentHandler->name()] = true;

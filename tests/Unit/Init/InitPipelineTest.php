@@ -5,9 +5,11 @@ declare(strict_types=1);
 use App\Agents\AgentInterface;
 use App\Agents\AgentRegistry;
 use App\Init\Handlers\AgentFilesHandler;
+use App\Init\HasBootstrapPrompts;
 use App\Init\InitContext;
 use App\Init\InitHandler;
 use App\Init\InitPipeline;
+use App\Scripts\PromptRunner;
 use App\Services\Settings\SettingsWriter;
 
 beforeEach(function () {
@@ -142,4 +144,56 @@ it('handles pipeline with no handlers', function () {
     $this->pipeline->run($ctx);
 
     expect(true)->toBeTrue();
+});
+
+it('runs bootstrap prompts for handler implementing HasBootstrapPrompts', function () {
+    $handler = Mockery::mock(InitHandler::class, HasBootstrapPrompts::class);
+    $handler->shouldReceive('name')->andReturn('bootstrap_handler');
+    $handler->shouldReceive('priority')->andReturn(10);
+    $handler->shouldReceive('summarize')->andReturn([]);
+
+    $handler->shouldReceive('getBootstrapPrompts')
+        ->twice()
+        ->andReturn(
+            [['id' => 'choice', 'type' => 'select', 'label' => 'Pick one', 'options' => ['a', 'b']]],
+            [],
+        );
+    $handler->shouldReceive('processBootstrapResponses')->once()->with(
+        Mockery::type(InitContext::class),
+        ['choice' => 'a'],
+    );
+    $handler->shouldReceive('apply')->once();
+
+    $promptRunner = Mockery::mock(PromptRunner::class);
+    $promptRunner->shouldReceive('runPrompts')->once()->andReturn(['choice' => 'a']);
+    app()->instance(PromptRunner::class, $promptRunner);
+
+    $agentFilesHandler = Mockery::mock(AgentFilesHandler::class);
+    $agentFilesHandler->shouldReceive('name')->andReturn('agent_files');
+    $agentFilesHandler->shouldReceive('priority')->andReturn(50);
+    $agentFilesHandler->shouldReceive('getPromptContext')->andReturn([]);
+    $agentFilesHandler->shouldReceive('apply')->once();
+
+    $this->pipeline->register($handler);
+    $this->pipeline->register($agentFilesHandler);
+
+    $ctx = createTestContext($this->settingsWriter, hasAgent: false);
+    $this->pipeline->run($ctx);
+});
+
+it('skips bootstrap prompts for handler not implementing HasBootstrapPrompts', function () {
+    $handler = createMockHandler('plain_handler', 10);
+    $handler->shouldReceive('apply')->once();
+
+    $agentFilesHandler = Mockery::mock(AgentFilesHandler::class);
+    $agentFilesHandler->shouldReceive('name')->andReturn('agent_files');
+    $agentFilesHandler->shouldReceive('priority')->andReturn(50);
+    $agentFilesHandler->shouldReceive('getPromptContext')->andReturn([]);
+    $agentFilesHandler->shouldReceive('apply')->once();
+
+    $this->pipeline->register($handler);
+    $this->pipeline->register($agentFilesHandler);
+
+    $ctx = createTestContext($this->settingsWriter, hasAgent: false);
+    $this->pipeline->run($ctx);
 });

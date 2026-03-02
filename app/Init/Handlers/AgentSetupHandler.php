@@ -8,12 +8,13 @@ use App\Agents\AgentDetector;
 use App\Agents\AgentRegistry;
 use App\Enums\BuildMode;
 use App\Init\AiDecisionRequest;
+use App\Init\HasBootstrapPrompts;
 use App\Init\InitContext;
 use App\Init\InitHandler;
 
-class AgentSetupHandler implements InitHandler
+class AgentSetupHandler implements HasBootstrapPrompts, InitHandler
 {
-    private const string DATA_KEY = 'agent_setup';
+    private const  DATA_KEY = 'agent_setup';
 
     public function __construct(
         private readonly AgentDetector $agentDetector,

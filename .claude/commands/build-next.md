@@ -55,13 +55,17 @@ Implement the next pending task from the tasks.json file, then exit.
 
 ## Cliff Notes Format
 
-When appending to cliff-notes.md, use this format:
+When appending to cliff-notes.md, you MUST use this exact heading format:
 ```
 ---
-## Task #[id]: [description]
+## Task #<id>: <title>
 - [Key point 1]
 - [Key point 2]
 ```
+
+**CRITICAL**: The heading MUST match `## Task #N: Title` exactly (where N is the numeric task ID).
+The TUI dashboard parses these headings with regex `/^## Task #(\d+):/m` to display per-task notes.
+A malformed heading (missing `#`, wrong spacing, etc.) will cause notes to not appear in the dashboard.
 
 ## Critical Rules
 
