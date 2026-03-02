@@ -1,0 +1,77 @@
+name: setup:env-copy
+description: Copy and configure environment files for worktree
+hidden: true
+version: 1
+
+steps:
+  - id: resolve-vars
+    run: |
+      branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+      folder="$(basename "$(pwd)")"
+      echo "${branch}:${folder}"
+    capture: BRANCH_FOLDER
+
+  - id: copy-and-edit
+    run: |
+      SETTINGS_FILE=".laracode/settings.json"
+      if [ ! -f "$SETTINGS_FILE" ]; then
+        echo "No settings file found, skipping env-copy" >&2
+        exit 0
+      fi
+
+      BRANCH_NAME="${BRANCH_FOLDER%%:*}"
+      FOLDER_NAME="${BRANCH_FOLDER#*:}"
+
+      php -r '
+        $settings = json_decode(file_get_contents($argv[1]), true);
+        $files = $settings["worktrees"]["filesToCopy"] ?? [];
+        if (empty($files)) { echo "No files to copy\n"; exit(0); }
+
+        $branch = $argv[2];
+        $folder = $argv[3];
+
+        foreach ($files as $entry) {
+            $path = $entry["path"] ?? "";
+            $source = $entry["source"] ?? "";
+            if ($path === "" || $source === "") continue;
+
+            if (!file_exists($source)) {
+                fwrite(STDERR, "Source file not found: $source, skipping\n");
+                continue;
+            }
+
+            if (file_exists($path)) {
+                fwrite(STDERR, "File already exists: $path, skipping\n");
+                continue;
+            }
+
+            $dir = dirname($path);
+            if ($dir !== "." && !is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            copy($source, $path);
+            echo "Copied $source -> $path\n";
+
+            $sedCommands = $entry["sedCommands"] ?? [];
+            if (empty($sedCommands)) continue;
+
+            $content = file_get_contents($path);
+            foreach ($sedCommands as $cmd) {
+                $cmd = str_replace("{{BRANCH_NAME}}", $branch, $cmd);
+                $cmd = str_replace("{{FOLDER_NAME}}", $folder, $cmd);
+
+                if (preg_match("#^s(.)(.+)\\1(.*)\\1([gimsxe]*)$#", $cmd, $m)) {
+                    $pattern = $m[2];
+                    $replacement = $m[3];
+                    $flags = $m[4];
+                    $limit = str_contains($flags, "g") ? -1 : 1;
+                    $escapedPattern = "/" . str_replace("/", "\\/", $pattern) . "/";
+                    $content = preg_replace($escapedPattern, $replacement, $content, $limit) ?? $content;
+                }
+            }
+            file_put_contents($path, $content);
+            echo "Applied " . count($sedCommands) . " edit(s) to $path\n";
+        }
+      ' "$SETTINGS_FILE" "$BRANCH_NAME" "$FOLDER_NAME"
+    on_failure: warn

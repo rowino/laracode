@@ -8,5 +8,11 @@
             "**/*.log",
             "**/.DS_Store"
         ]
+    },
+    "testing": {
+        "commands": []
+    },
+    "linting": {
+        "commands": []
     }
 }

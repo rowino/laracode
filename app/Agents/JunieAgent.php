@@ -11,9 +11,9 @@ use App\Enums\BuildMode;
  */
 class JunieAgent implements AgentInterface
 {
-    private const CONFIG_FOLDER = '.junie';
+    private const string CONFIG_FOLDER = '.junie';
 
-    private const SETTINGS_FILE = 'guidelines.md';
+    private const string SETTINGS_FILE = 'guidelines.md';
 
     public function name(): string
     {

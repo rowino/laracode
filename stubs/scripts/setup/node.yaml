@@ -1,0 +1,36 @@
+name: setup:node
+description: Install Node.js dependencies (auto-detects pnpm/yarn/npm)
+hidden: true
+version: 1
+
+steps:
+  - id: check
+    run: |
+      if [ ! -f "package.json" ]; then
+        echo "No package.json found, skipping" >&2
+        exit 1
+      fi
+    on_failure: abort
+
+  - id: install
+    run: |
+      if [ -f "pnpm-lock.yaml" ]; then
+        pnpm install
+      elif [ -f "yarn.lock" ]; then
+        yarn install
+      else
+        npm install
+      fi
+    on_failure: warn
+
+  - id: build
+    run: |
+      if [ -f "pnpm-lock.yaml" ]; then
+        pnpm run build
+      elif [ -f "yarn.lock" ]; then
+        yarn build
+      else
+        npm run build
+      fi
+    condition: "{{skip_build}} != 1"
+    on_failure: warn

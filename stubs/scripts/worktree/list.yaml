@@ -1,0 +1,100 @@
+name: worktree:list
+description: List existing git worktrees with status
+version: 1
+
+steps:
+  - id: check-git
+    run: |
+      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Not a git repository" >&2
+        exit 1
+      fi
+    on_failure: abort
+
+  - id: list-worktrees
+    run: |
+      current_path="$(cd "$(pwd)" && pwd -P 2>/dev/null || pwd)"
+      tmpfile=$(mktemp)
+      trap 'rm -f "$tmpfile"' EXIT
+
+      git worktree list --porcelain > "$tmpfile"
+      printf '\n' >> "$tmpfile"
+
+      bold='\033[1m'
+      green='\033[32m'
+      yellow='\033[33m'
+      dim='\033[2m'
+      reset='\033[0m'
+
+      printf "${bold}%-2s %-25s %-25s %-10s %s${reset}\n" "" "Name" "Branch" "Status" "Path"
+      printf "${dim}%-2s %-25s %-25s %-10s %s${reset}\n" "" "----" "------" "------" "----"
+
+      count=0
+      wt_path=""
+      wt_branch=""
+      wt_bare=0
+      wt_detached=0
+
+      while IFS= read -r line; do
+        case "$line" in
+          worktree\ *)
+            wt_path="${line#worktree }"
+            wt_branch=""
+            wt_bare=0
+            wt_detached=0
+            ;;
+          branch\ *)
+            ref="${line#branch }"
+            wt_branch="${ref#refs/heads/}"
+            ;;
+          bare)
+            wt_bare=1
+            ;;
+          detached)
+            wt_detached=1
+            ;;
+          "")
+            if [ -n "$wt_path" ]; then
+              wt_name=$(basename "$wt_path")
+              real_wt=$(cd "$wt_path" 2>/dev/null && pwd -P 2>/dev/null || echo "$wt_path")
+
+              status_color=""
+              if [ "$wt_bare" -eq 1 ]; then
+                status="bare"
+                status_color="$dim"
+              elif [ "$wt_detached" -eq 1 ]; then
+                status="detached"
+                status_color="$dim"
+              else
+                dirty=$(cd "$wt_path" 2>/dev/null && git status --porcelain 2>/dev/null | head -1)
+                if [ "$real_wt" = "$current_path" ]; then
+                  if [ -n "$dirty" ]; then status="current*"; else status="current"; fi
+                  status_color="$green"
+                else
+                  if [ -n "$dirty" ]; then
+                    status="dirty"
+                    status_color="$yellow"
+                  else
+                    status="clean"
+                    status_color="$green"
+                  fi
+                fi
+              fi
+
+              marker=""
+              marker_color=""
+              if [ "$real_wt" = "$current_path" ]; then
+                marker="*"
+                marker_color="$green"
+              fi
+
+              printf "${marker_color}%-2s${reset}%-25s %-25s ${status_color}%-10s${reset} %s\n" "$marker" "$wt_name" "$wt_branch" "$status" "$wt_path"
+              count=$((count + 1))
+              wt_path=""
+            fi
+            ;;
+        esac
+      done < "$tmpfile"
+
+      echo ""
+      echo "${dim}Total: $count worktree(s)${reset}"

@@ -17,10 +17,13 @@ beforeEach(function () {
     mkdir($this->testPath.'/.laracode', 0755, true);
     mkdir($this->testPath.'/app', 0755, true);
     mkdir($this->testPath.'/routes', 0755, true);
+    $this->originalCwd = getcwd();
     chdir($this->testPath);
 });
 
 afterEach(function () {
+    chdir($this->originalCwd);
+
     if (is_dir($this->testPath)) {
         File::deleteDirectory($this->testPath);
     }

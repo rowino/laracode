@@ -12,12 +12,15 @@ beforeEach(function () {
     mkdir($this->testPath.'/app', 0755, true);
     mkdir($this->testPath.'/routes', 0755, true);
     mkdir($this->testPath.'/resources', 0755, true);
+    $this->originalCwd = getcwd();
     chdir($this->testPath);
     $this->commentExtractor = new CommentExtractor;
     $this->watchService = new WatchService;
 });
 
 afterEach(function () {
+    chdir($this->originalCwd);
+
     if (is_dir($this->testPath)) {
         File::deleteDirectory($this->testPath);
     }

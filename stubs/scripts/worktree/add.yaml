@@ -1,0 +1,85 @@
+name: worktree:add
+description: Create a new git worktree with setup flows
+version: 1
+
+signature:
+  arguments:
+    branch: { description: "Branch name", required: false }
+  options:
+    folder: { description: "Folder name for the worktree", value_required: true }
+    source: { description: "Source branch to create from", value_required: true }
+    skip-setup: { description: "Skip running setup flows" }
+    auto: { description: "Run setup flows without prompts using defaults" }
+
+variables:
+  BASE_PATH: "{{settings.worktrees.basePath}}"
+  SETUP_SCRIPTS: "{{settings.worktrees.setupScripts}}"
+
+prompts:
+  - id: BRANCH_NAME
+    type: text
+    label: "Branch name"
+    required: true
+    bind: argument.branch
+
+  - id: SOURCE_BRANCH
+    type: text
+    label: "Source branch"
+    default: "{{settings.worktrees.defaultSourceBranch}}"
+    bind: option.source
+
+steps:
+  - id: resolve-base
+    run: |
+      base="$BASE_PATH"
+      if [ "${base:0:1}" != "/" ]; then base="$(pwd)/$base"; fi
+      echo "$base"
+    capture: BASE_PATH
+
+  - id: resolve-folder
+    run: |
+      folder="${folder:-}"
+      if [ -z "$folder" ]; then
+        echo "$BRANCH_NAME" | awk -F/ '{print $NF}'
+      else
+        echo "$folder"
+      fi
+    capture: FOLDER_NAME
+
+  - id: resolve-path
+    run: 'echo "$BASE_PATH/$FOLDER_NAME"'
+    capture: TARGET_PATH
+
+  - id: ensure-base-dir
+    run: 'mkdir -p "$BASE_PATH"'
+
+  - id: create-worktree
+    run: 'git worktree add -b "$BRANCH_NAME" "$TARGET_PATH" "$SOURCE_BRANCH"'
+    on_failure: abort
+
+  - id: shared-setup
+    runner: script
+    script: worktree:shared-setup
+    variables:
+      WORKTREE_PATH: "{{TARGET_PATH}}"
+      BASE_PATH: "{{BASE_PATH}}"
+    condition: "{{skip_setup}} != 1"
+    on_failure: warn
+
+  - id: run-setup-scripts
+    run: |
+      scripts="$SETUP_SCRIPTS"
+      if echo "$scripts" | grep -qF '{{'; then exit 0; fi
+      if [ -z "$scripts" ]; then exit 0; fi
+      cd "$TARGET_PATH"
+      for script in $scripts; do
+        echo "Running setup: $script"
+        laracode "$script" || echo "Warning: $script failed"
+      done
+    condition: "{{skip_setup}} != 1"
+    on_failure: warn
+
+  - id: show-switch-hint
+    run: |
+      printf '\033[32m✓ Worktree created: %s\033[0m\n' "$FOLDER_NAME"
+      printf '\033[36mTo switch:\033[0m cd %s\n' "$TARGET_PATH"

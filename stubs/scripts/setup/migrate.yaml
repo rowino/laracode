@@ -1,0 +1,17 @@
+name: setup:migrate
+description: Run database migrations
+hidden: true
+version: 1
+
+steps:
+  - id: check
+    run: |
+      if [ ! -f "artisan" ]; then
+        echo "No artisan file found, skipping" >&2
+        exit 1
+      fi
+    on_failure: abort
+
+  - id: migrate
+    run: php artisan migrate --no-interaction
+    on_failure: warn

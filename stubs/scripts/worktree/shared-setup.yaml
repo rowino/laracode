@@ -1,0 +1,37 @@
+name: worktree:shared-setup
+description: Set up shared directories via symlinks in a worktree
+hidden: true
+version: 1
+
+variables:
+  SHARED_PATH: "{{BASE_PATH}}/.shared"
+  SHARED_DIRS: "{{settings.worktrees.sharedDirs}}"
+
+steps:
+  - id: resolve-shared-dirs
+    run: |
+      if echo "$SHARED_DIRS" | grep -qF '{{'; then
+        echo ""
+      else
+        echo "$SHARED_DIRS"
+      fi
+    capture: RESOLVED_DIRS
+
+  - id: setup-shared-dirs
+    run: |
+      if [ -z "$RESOLVED_DIRS" ]; then exit 0; fi
+
+      mkdir -p "$SHARED_PATH"
+
+      for dir in $RESOLVED_DIRS; do
+        mkdir -p "$SHARED_PATH/$dir"
+
+        if [ -d "$WORKTREE_PATH/$dir" ] && [ ! -L "$WORKTREE_PATH/$dir" ] && [ -z "$(ls -A "$SHARED_PATH/$dir" 2>/dev/null)" ]; then
+          cp -a "$WORKTREE_PATH/$dir/." "$SHARED_PATH/$dir/"
+          echo "Seeded $dir from worktree"
+        fi
+
+        rm -rf "$WORKTREE_PATH/$dir"
+        ln -s "$SHARED_PATH/$dir" "$WORKTREE_PATH/$dir"
+        echo "Linked $dir"
+      done

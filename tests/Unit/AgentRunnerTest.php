@@ -10,9 +10,13 @@ beforeEach(function () {
     $this->testPath = sys_get_temp_dir().'/laracode-agent-runner-test-'.uniqid();
     mkdir($this->testPath, 0755, true);
     $this->lockPath = $this->testPath.'/test.lock';
+    $this->originalPath = getenv('PATH');
 });
 
 afterEach(function () {
+    putenv("PATH={$this->originalPath}");
+    putenv('TEST_VAR_FOR_AGENT');
+
     if (is_dir($this->testPath)) {
         array_map('unlink', glob($this->testPath.'/*'));
         rmdir($this->testPath);

@@ -22,12 +22,18 @@ jobs:
           coverage: none
 
       - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress --optimize-autoloader
+        run: composer install --prefer-dist --no-interaction --no-progress --no-dev --optimize-autoloader
+
+      - name: Download Box
+        run: |
+          curl -LSs https://box-project.github.io/box2/installer.php | php
+          mkdir -p bin
+          mv box.phar bin/box
 
       - name: Build PHAR
         env:
           BUILD_VERSION: ${{ github.ref_name }}
-        run: php laracode app:build laracode --build-version="$BUILD_VERSION"
+        run: php application app:build laracode --build-version="$BUILD_VERSION"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

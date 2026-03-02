@@ -1,0 +1,17 @@
+name: setup:composer
+description: Install PHP dependencies
+hidden: true
+version: 1
+
+steps:
+  - id: check
+    run: |
+      if [ ! -f "composer.json" ]; then
+        echo "No composer.json found, skipping" >&2
+        exit 1
+      fi
+    on_failure: abort
+
+  - id: install
+    run: composer install --no-interaction
+    on_failure: warn

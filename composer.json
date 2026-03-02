@@ -13,7 +13,10 @@
     ],
     "require": {
         "php": "^8.2",
-        "laravel-zero/phar-updater": "^1.4"
+        "illuminate/view": "^12.17",
+        "laravel-zero/phar-updater": "^1.4",
+        "nunomaduro/termwind": "^2.3",
+        "symfony/yaml": "^8.0"
     },
     "require-dev": {
         "larastan/larastan": "^3.8",

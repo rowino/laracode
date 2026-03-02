@@ -1,0 +1,89 @@
+name: worktree:delete
+description: Delete a git worktree with optional branch cleanup
+version: 1
+
+signature:
+  arguments:
+    name: { description: "Name or path of the worktree to delete", required: false }
+  options:
+    force: { description: "Force removal even if worktree is dirty" }
+    delete-branch: { description: "Delete the branch after removing the worktree" }
+
+prompts:
+  - id: name
+    type: text
+    label: "Worktree name to delete (run worktree:list to see available)"
+    required: true
+    bind: argument.name
+
+steps:
+  - id: check-git
+    run: |
+      if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Not a git repository" >&2
+        exit 1
+      fi
+    on_failure: abort
+
+  - id: find-worktree
+    run: |
+      current_path="$(cd "$(pwd)" && pwd -P 2>/dev/null || pwd)"
+      target="$name"
+
+      result=$( (git worktree list --porcelain; echo "") | awk -v target="$target" -v current="$current_path" '
+        /^worktree / {
+          if (path != "") check()
+          path = substr($0, 10); branch = ""; bare = 0
+        }
+        /^branch / { branch = substr($0, 8); sub(/^refs\/heads\//, "", branch) }
+        /^bare$/ { bare = 1 }
+        END { if (path != "") check() }
+        function check() {
+          if (bare || path == current) return
+          n = path; sub(/.*\//, "", n)
+          if (n == target || path == target) {
+            print path "|" branch
+            found = 1; exit
+          }
+        }
+      ')
+
+      if [ -z "$result" ]; then
+        echo "Worktree not found: $target" >&2
+        exit 1
+      fi
+
+      echo "$result"
+    capture: WORKTREE_INFO
+    on_failure: abort
+
+  - id: remove-worktree
+    run: |
+      wt_path="${WORKTREE_INFO%%|*}"
+      wt_name=$(basename "$wt_path")
+
+      if [ "${force:-0}" = "1" ] || [ "${force:-}" = "true" ]; then
+        git worktree remove --force "$wt_path"
+      else
+        git worktree remove "$wt_path"
+      fi
+
+      printf '\033[32m✓ Worktree removed: %s (%s)\033[0m\n' "$wt_name" "$wt_path"
+    on_failure: abort
+
+  - id: delete-branch
+    condition: "{{delete_branch}} == 1"
+    run: |
+      wt_branch="${WORKTREE_INFO#*|}"
+
+      if [ -z "$wt_branch" ]; then
+        printf '\033[2mNo branch associated, skipping branch deletion\033[0m\n'
+        exit 0
+      fi
+
+      if ! git branch -d "$wt_branch" 2>/dev/null; then
+        git branch -D "$wt_branch"
+      fi
+
+      printf '\033[32m✓ Branch deleted: %s\033[0m\n' "$wt_branch"
+    on_failure: warn

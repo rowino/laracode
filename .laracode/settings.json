@@ -3,7 +3,8 @@
         "paths": [
             "app/",
             "routes/",
-            "resources/"
+            "resources/",
+            "tests"
         ],
         "searchWord": "@claude",
         "stopWord": "claude!",
@@ -19,5 +20,7 @@
             "**/*.log",
             "**/.DS_Store"
         ]
+    },
+    "defaultMode": "yolo"
     }
 }

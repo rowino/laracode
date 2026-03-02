@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Process;
  */
 class AgentDetector
 {
-    public const KNOWN_AGENTS = [
+    public const array KNOWN_AGENTS = [
         'claude',
         'opencode',
         'codex',

@@ -13,9 +13,9 @@ use App\Enums\BuildMode;
  */
 class AgentRunner
 {
-    private const POLL_INTERVAL_MS = 100000; // 100ms
+    private const int POLL_INTERVAL_MS = 100000; // 100ms
 
-    private const TERMINATE_GRACE_MS = 500000; // 500ms
+    private const int TERMINATE_GRACE_MS = 500000; // 500ms
 
     public function __construct(
         private AgentRegistry $agentRegistry
